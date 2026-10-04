@@ -1,22 +1,7 @@
+using System;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.AnimeDubStatus.Configuration;
-
-/// <summary>
-/// The configuration options.
-/// </summary>
-public enum SomeOptions
-{
-    /// <summary>
-    /// Option one.
-    /// </summary>
-    OneOption,
-
-    /// <summary>
-    /// Second option.
-    /// </summary>
-    AnotherOption
-}
 
 /// <summary>
 /// Plugin configuration.
@@ -28,30 +13,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public PluginConfiguration()
     {
-        // set default options here
-        Options = SomeOptions.AnotherOption;
-        TrueFalseSetting = true;
-        AnInteger = 2;
-        AString = "string";
+        DataETag = string.Empty;
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether some true or false setting is enabled..
+    /// Gets or sets the ETag of the last downloaded dataset.
     /// </summary>
-    public bool TrueFalseSetting { get; set; }
+    public string DataETag { get; set; }
 
     /// <summary>
-    /// Gets or sets an integer setting.
+    /// Gets or sets the time the dataset last changed.
     /// </summary>
-    public int AnInteger { get; set; }
-
-    /// <summary>
-    /// Gets or sets a string setting.
-    /// </summary>
-    public string AString { get; set; }
-
-    /// <summary>
-    /// Gets or sets an enum option.
-    /// </summary>
-    public SomeOptions Options { get; set; }
+    public DateTime? LastUpdatedUtc { get; set; }
 }
