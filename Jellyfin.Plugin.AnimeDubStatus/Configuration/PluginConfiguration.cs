@@ -14,15 +14,21 @@ public class PluginConfiguration : BasePluginConfiguration
     public PluginConfiguration()
     {
         DataETag = string.Empty;
+        MappingETag = string.Empty;
     }
 
     /// <summary>
-    /// Gets or sets the ETag of the last downloaded dataset.
+    /// Gets or sets the ETag of the last downloaded dub dataset.
     /// </summary>
     public string DataETag { get; set; }
 
     /// <summary>
-    /// Gets or sets the time the dataset last changed.
+    /// Gets or sets the ETag of the last downloaded AniList mapping.
+    /// </summary>
+    public string MappingETag { get; set; }
+
+    /// <summary>
+    /// Gets or sets the time the data last changed.
     /// </summary>
     public DateTime? LastUpdatedUtc { get; set; }
 }

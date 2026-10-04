@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,19 +15,23 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.AnimeDubStatus.Services;
 
 /// <summary>
-/// Downloads, caches and queries the MyDubList English dub dataset.
+/// Downloads, caches and queries the MyDubList English dub dataset and AniList mapping.
 /// Dub data © MyDubList - https://mydublist.com - (CC BY 4.0).
 /// </summary>
 public sealed class DubDataService : IDisposable
 {
-    private const string DataUrl = "https://raw.githubusercontent.com/Joelis57/MyDubList/main/dubs/confidence/normal/dubbed_english.json";
-    private const int MinimumExpectedEntries = 1000;
+    private const string DubUrl = "https://raw.githubusercontent.com/Joelis57/MyDubList/main/dubs/confidence/normal/dubbed_english.json";
+    private const string MappingUrl = "https://raw.githubusercontent.com/Joelis57/MyDubList/main/dubs/mappings/mappings_anilist.jsonl";
+    private const int MinimumDubEntries = 1000;
+    private const int MinimumMappingEntries = 5000;
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<DubDataService> _logger;
-    private readonly string _cacheFilePath;
+    private readonly string _dubCachePath;
+    private readonly string _mappingCachePath;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private volatile FrozenSet<int> _englishDubs = FrozenSet<int>.Empty;
+    private volatile FrozenDictionary<int, int> _anilistToMal = FrozenDictionary<int, int>.Empty;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DubDataService"/> class.
@@ -44,7 +49,8 @@ public sealed class DubDataService : IDisposable
 
         var directory = Path.Combine(applicationPaths.DataPath, "AnimeDubStatus");
         Directory.CreateDirectory(directory);
-        _cacheFilePath = Path.Combine(directory, "dubbed_english.json");
+        _dubCachePath = Path.Combine(directory, "dubbed_english.json");
+        _mappingCachePath = Path.Combine(directory, "mappings_anilist.jsonl");
 
         LoadFromDisk();
     }
@@ -62,61 +68,34 @@ public sealed class DubDataService : IDisposable
     public bool IsEnglishDubbed(int malId) => _englishDubs.Contains(malId);
 
     /// <summary>
-    /// Downloads the dataset if it changed since the last check.
+    /// Converts an AniList ID to a MyAnimeList ID.
+    /// </summary>
+    /// <param name="anilistId">The AniList ID.</param>
+    /// <param name="malId">The MyAnimeList ID, if known.</param>
+    /// <returns>True if a mapping exists.</returns>
+    public bool TryGetMalId(int anilistId, out int malId) => _anilistToMal.TryGetValue(anilistId, out malId);
+
+    /// <summary>
+    /// Downloads the dataset and mapping if they changed since the last check.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>True if new data was downloaded, false if already up to date.</returns>
+    /// <returns>True if anything new was downloaded.</returns>
     public async Task<bool> UpdateAsync(CancellationToken cancellationToken)
     {
         await _updateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var plugin = Plugin.Instance;
+            var dubsChanged = await UpdateDubsAsync(plugin, cancellationToken).ConfigureAwait(false);
+            var mappingChanged = await UpdateMappingAsync(plugin, cancellationToken).ConfigureAwait(false);
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, DataUrl);
-            if (plugin is not null
-                && !string.IsNullOrEmpty(plugin.Configuration.DataETag)
-                && File.Exists(_cacheFilePath))
+            if ((dubsChanged || mappingChanged) && plugin is not null)
             {
-                request.Headers.TryAddWithoutValidation("If-None-Match", plugin.Configuration.DataETag);
-            }
-
-            var client = _httpClientFactory.CreateClient(NamedClient.Default);
-            using var response = await client
-                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (response.StatusCode == HttpStatusCode.NotModified)
-            {
-                _logger.LogInformation("English dub data is already up to date");
-                return false;
-            }
-
-            response.EnsureSuccessStatusCode();
-
-            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            var parsed = Parse(bytes);
-            if (parsed.Count < MinimumExpectedEntries)
-            {
-                throw new InvalidDataException($"Dub data has only {parsed.Count} entries, refusing to use it");
-            }
-
-            // Write to a temp file and swap, so a bad download never replaces a working cache.
-            var tempPath = _cacheFilePath + ".tmp";
-            await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken).ConfigureAwait(false);
-            File.Move(tempPath, _cacheFilePath, overwrite: true);
-
-            _englishDubs = parsed;
-
-            if (plugin is not null)
-            {
-                plugin.Configuration.DataETag = response.Headers.ETag?.Tag ?? string.Empty;
                 plugin.Configuration.LastUpdatedUtc = DateTime.UtcNow;
                 plugin.SaveConfiguration();
             }
 
-            _logger.LogInformation("Loaded {Count} English dubbed titles", parsed.Count);
-            return true;
+            return dubsChanged || mappingChanged;
         }
         finally
         {
@@ -124,7 +103,13 @@ public sealed class DubDataService : IDisposable
         }
     }
 
-    private static FrozenSet<int> Parse(byte[] json)
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _updateLock.Dispose();
+    }
+
+    private static FrozenSet<int> ParseDubs(byte[] json)
     {
         using var document = JsonDocument.Parse(json);
         if (!document.RootElement.TryGetProperty("dubbed", out var dubbed)
@@ -145,27 +130,132 @@ public sealed class DubDataService : IDisposable
         return ids.ToFrozenSet();
     }
 
-    private void LoadFromDisk()
+    private static FrozenDictionary<int, int> ParseMapping(byte[] jsonLines)
     {
-        if (!File.Exists(_cacheFilePath))
+        var map = new Dictionary<int, int>();
+        var text = Encoding.UTF8.GetString(jsonLines);
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            return;
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (root.TryGetProperty("mal_id", out var mal) && mal.TryGetInt32(out var malId)
+                && root.TryGetProperty("anilist_id", out var anilist) && anilist.TryGetInt32(out var anilistId))
+            {
+                map[anilistId] = malId;
+            }
         }
 
+        return map.ToFrozenDictionary();
+    }
+
+    private static async Task WriteCacheAsync(string path, byte[] bytes, CancellationToken cancellationToken)
+    {
+        // Write to a temp file and swap, so a bad download never replaces a working cache.
+        var tempPath = path + ".tmp";
+        await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken).ConfigureAwait(false);
+        File.Move(tempPath, path, overwrite: true);
+    }
+
+    private async Task<bool> UpdateDubsAsync(Plugin? plugin, CancellationToken cancellationToken)
+    {
+        var fetched = await FetchAsync(DubUrl, plugin?.Configuration.DataETag, _dubCachePath, cancellationToken).ConfigureAwait(false);
+        if (fetched is null)
+        {
+            _logger.LogInformation("English dub data is already up to date");
+            return false;
+        }
+
+        var (bytes, etag) = fetched.Value;
+        var parsed = ParseDubs(bytes);
+        if (parsed.Count < MinimumDubEntries)
+        {
+            throw new InvalidDataException($"Dub data has only {parsed.Count} entries, refusing to use it");
+        }
+
+        await WriteCacheAsync(_dubCachePath, bytes, cancellationToken).ConfigureAwait(false);
+        _englishDubs = parsed;
+        if (plugin is not null)
+        {
+            plugin.Configuration.DataETag = etag;
+        }
+
+        _logger.LogInformation("Loaded {Count} English dubbed titles", parsed.Count);
+        return true;
+    }
+
+    private async Task<bool> UpdateMappingAsync(Plugin? plugin, CancellationToken cancellationToken)
+    {
+        var fetched = await FetchAsync(MappingUrl, plugin?.Configuration.MappingETag, _mappingCachePath, cancellationToken).ConfigureAwait(false);
+        if (fetched is null)
+        {
+            _logger.LogInformation("AniList mapping is already up to date");
+            return false;
+        }
+
+        var (bytes, etag) = fetched.Value;
+        var parsed = ParseMapping(bytes);
+        if (parsed.Count < MinimumMappingEntries)
+        {
+            throw new InvalidDataException($"Mapping has only {parsed.Count} entries, refusing to use it");
+        }
+
+        await WriteCacheAsync(_mappingCachePath, bytes, cancellationToken).ConfigureAwait(false);
+        _anilistToMal = parsed;
+        if (plugin is not null)
+        {
+            plugin.Configuration.MappingETag = etag;
+        }
+
+        _logger.LogInformation("Loaded {Count} AniList to MAL mappings", parsed.Count);
+        return true;
+    }
+
+    private async Task<(byte[] Bytes, string ETag)?> FetchAsync(
+        string url,
+        string? knownETag,
+        string cachePath,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!string.IsNullOrEmpty(knownETag) && File.Exists(cachePath))
+        {
+            request.Headers.TryAddWithoutValidation("If-None-Match", knownETag);
+        }
+
+        var client = _httpClientFactory.CreateClient(NamedClient.Default);
+        using var response = await client
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.NotModified)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        return (bytes, response.Headers.ETag?.Tag ?? string.Empty);
+    }
+
+    private void LoadFromDisk()
+    {
         try
         {
-            _englishDubs = Parse(File.ReadAllBytes(_cacheFilePath));
-            _logger.LogInformation("Loaded {Count} English dubbed titles from cache", _englishDubs.Count);
+            if (File.Exists(_dubCachePath))
+            {
+                _englishDubs = ParseDubs(File.ReadAllBytes(_dubCachePath));
+                _logger.LogInformation("Loaded {Count} English dubbed titles from cache", _englishDubs.Count);
+            }
+
+            if (File.Exists(_mappingCachePath))
+            {
+                _anilistToMal = ParseMapping(File.ReadAllBytes(_mappingCachePath));
+                _logger.LogInformation("Loaded {Count} AniList mappings from cache", _anilistToMal.Count);
+            }
         }
         catch (Exception ex) when (ex is IOException or JsonException or InvalidDataException)
         {
-            _logger.LogWarning(ex, "Could not read cached dub data, it will be re-downloaded");
+            _logger.LogWarning(ex, "Could not read cached data, it will be re-downloaded");
         }
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _updateLock.Dispose();
     }
 }

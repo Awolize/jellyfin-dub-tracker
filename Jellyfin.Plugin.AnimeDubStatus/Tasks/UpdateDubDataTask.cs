@@ -13,14 +13,17 @@ namespace Jellyfin.Plugin.AnimeDubStatus.Tasks;
 public class UpdateDubDataTask : IScheduledTask
 {
     private readonly DubDataService _dubData;
+    private readonly DubTagger _tagger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UpdateDubDataTask"/> class.
     /// </summary>
     /// <param name="dubData">Instance of the <see cref="DubDataService"/> class.</param>
-    public UpdateDubDataTask(DubDataService dubData)
+    /// <param name="tagger">Instance of the <see cref="DubTagger"/> class.</param>
+    public UpdateDubDataTask(DubDataService dubData, DubTagger tagger)
     {
         _dubData = dubData;
+        _tagger = tagger;
     }
 
     /// <inheritdoc />
@@ -40,6 +43,7 @@ public class UpdateDubDataTask : IScheduledTask
     {
         progress.Report(0);
         await _dubData.UpdateAsync(cancellationToken).ConfigureAwait(false);
+        await _tagger.ApplyAsync(new Progress<double>(p => progress.Report(p)), cancellationToken).ConfigureAwait(false);
         progress.Report(100);
     }
 
