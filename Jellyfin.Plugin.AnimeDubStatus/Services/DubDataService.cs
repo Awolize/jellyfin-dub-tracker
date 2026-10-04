@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.AnimeDubStatus.Services;
 /// Downloads, caches and queries the MyDubList English dub dataset.
 /// Dub data © MyDubList - https://mydublist.com - (CC BY 4.0).
 /// </summary>
-public class DubDataService : IDisposable
+public sealed class DubDataService : IDisposable
 {
     private const string DataUrl = "https://raw.githubusercontent.com/Joelis57/MyDubList/main/dubs/confidence/normal/dubbed_english.json";
     private const int MinimumExpectedEntries = 1000;
@@ -163,9 +163,9 @@ public class DubDataService : IDisposable
         }
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public void Dispose()
     {
-        throw new NotImplementedException();
+        _updateLock.Dispose();
     }
 }
