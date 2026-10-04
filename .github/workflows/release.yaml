@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  PROJECT: Jellyfin.Plugin.AnimeDubStatus
+  TARGET_ABI: "12.1.0.0" # must match your Jellyfin server version
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Get version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: >
+          dotnet build "$PROJECT" -c Release
+          -p:Version=$VERSION -p:AssemblyVersion=$VERSION -p:FileVersion=$VERSION
+
+      - name: Package
+        run: |
+          ZIP="AnimeDubStatus_${VERSION}.zip"
+          zip -j "$ZIP" "$PROJECT/bin/Release/net10.0/$PROJECT.dll"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "CHECKSUM=$(md5sum "$ZIP" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$ZIP" --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin master
+          git checkout master
+
+          if [ ! -f manifest.json ]; then
+            cat > manifest.json <<'EOF'
+          [
+            {
+              "guid": "7ed22e99-eacf-47e9-9b35-991b229743b7",
+              "name": "Anime Dub Status",
+              "description": "Shows whether an anime has an English dub.",
+              "overview": "Marks anime that have an English dub, using data from MyDubList.",
+              "owner": "Awolize",
+              "category": "Metadata",
+              "versions": []
+            }
+          ]
+          EOF
+          fi
+
+          SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ZIP}"
+          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          jq --arg v "$VERSION" --arg abi "$TARGET_ABI" --arg url "$SOURCE_URL" \
+             --arg sum "$CHECKSUM" --arg ts "$TIMESTAMP" '
+            .[0].versions |= ([{
+              version: $v,
+              changelog: ("Release " + $v),
+              targetAbi: $abi,
+              sourceUrl: $url,
+              checksum: $sum,
+              timestamp: $ts
+            }] + map(select(.version != $v)))
+          ' manifest.json > manifest.tmp
+          mv manifest.tmp manifest.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git commit -m "Update manifest for $GITHUB_REF_NAME"
+          git push origin master
