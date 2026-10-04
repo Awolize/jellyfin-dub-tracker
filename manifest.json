@@ -1,0 +1,20 @@
+[
+  {
+    "guid": "7ed22e99-eacf-47e9-9b35-991b229743b7",
+    "name": "Anime Dub Status",
+    "description": "Shows whether an anime has an English dub.",
+    "overview": "Marks anime that have an English dub, using data from MyDubList.",
+    "owner": "Awolize",
+    "category": "Metadata",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Release 1.0.0.0",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/Awolize/jellyfin-dub-tracker/releases/download/v1.0.0.0/AnimeDubStatus_1.0.0.0.zip",
+        "checksum": "262ca74cb68520a90111fc40a82cd652",
+        "timestamp": "2026-10-04T17:17:35Z"
+      }
+    ]
+  }
+]
