@@ -1,8 +1,19 @@
 (function () {
     'use strict';
 
-    var TAG = 'English Dub Available';
+    // Served next to index.html by the plugin's own middleware, so this stays valid
+    // behind a Jellyfin base URL and needs no API client or authentication.
+    var DATA_URL = 'anime-dub-status.json';
+
+    var CARD_SELECTOR = '.card[data-id]';
+    var ID_ATTRIBUTE = 'data-id';
+    var BADGE_CLASS = 'anime-dub-badge';
+    var OVERLAY_SELECTORS = ['.cardScalable', '.cardImageContainer', '.cardBox'];
+
+    var BADGE_TEXT = 'EN DUB';
     var REFRESH_MS = 5 * 60 * 1000;
+    var DEBOUNCE_MS = 250;
+
     var dubbedIds = new Set();
     var lastLoad = 0;
     var inFlight = null;
@@ -10,7 +21,7 @@
 
     var style = document.createElement('style');
     style.textContent =
-        '.anime-dub-badge{position:absolute;top:.4em;left:.4em;z-index:2;padding:.15em .5em;' +
+        '.' + BADGE_CLASS + '{position:absolute;top:.4em;left:.4em;z-index:2;padding:.15em .5em;' +
         'border-radius:.3em;background:#f5b301;color:#000;font-size:.75em;font-weight:700;' +
         'letter-spacing:.03em;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,.5)}';
     document.head.appendChild(style);
@@ -20,10 +31,6 @@
     }
 
     function loadDubbedIds() {
-        var client = window.ApiClient;
-        if (!client || !client.getCurrentUserId || !client.getCurrentUserId()) {
-            return Promise.resolve();
-        }
         if (inFlight) {
             return inFlight;
         }
@@ -31,28 +38,40 @@
             return Promise.resolve();
         }
 
-        inFlight = client.getItems(client.getCurrentUserId(), {
-            Recursive: true,
-            IncludeItemTypes: 'Series',
-            Tags: TAG,
-            EnableImages: false,
-            EnableUserData: false
-        }).then(function (result) {
-            dubbedIds = new Set(result.Items.map(function (item) { return normalize(item.Id); }));
-            lastLoad = Date.now();
-        }).catch(function () {
-            // ignore, it will retry on the next page change
-        }).then(function () {
-            inFlight = null;
-        });
+        inFlight = fetch(DATA_URL, { cache: 'no-cache', credentials: 'same-origin' })
+            .then(function (response) {
+                return response.ok ? response.json() : null;
+            })
+            .then(function (ids) {
+                if (Array.isArray(ids)) {
+                    dubbedIds = new Set(ids.map(normalize));
+                    lastLoad = Date.now();
+                }
+            })
+            .catch(function () {
+                // Ignore; the next page change retries.
+            })
+            .then(function () {
+                inFlight = null;
+            });
 
         return inFlight;
     }
 
+    function findOverlay(card) {
+        for (var i = 0; i < OVERLAY_SELECTORS.length; i++) {
+            var overlay = card.querySelector(OVERLAY_SELECTORS[i]);
+            if (overlay) {
+                return overlay;
+            }
+        }
+        return card;
+    }
+
     function apply() {
-        document.querySelectorAll('.card[data-id]').forEach(function (card) {
-            var existing = card.querySelector('.anime-dub-badge');
-            var dubbed = dubbedIds.has(normalize(card.getAttribute('data-id')));
+        document.querySelectorAll(CARD_SELECTOR).forEach(function (card) {
+            var existing = card.querySelector('.' + BADGE_CLASS);
+            var dubbed = dubbedIds.has(normalize(card.getAttribute(ID_ATTRIBUTE)));
 
             if (existing && !dubbed) {
                 existing.remove();
@@ -62,14 +81,14 @@
                 return;
             }
 
-            var host = card.querySelector('.cardScalable') || card;
+            var host = findOverlay(card);
             if (getComputedStyle(host).position === 'static') {
                 host.style.position = 'relative';
             }
 
             var badge = document.createElement('div');
-            badge.className = 'anime-dub-badge';
-            badge.textContent = 'EN DUB';
+            badge.className = BADGE_CLASS;
+            badge.textContent = BADGE_TEXT;
             host.appendChild(badge);
         });
     }
@@ -81,9 +100,18 @@
         timer = setTimeout(function () {
             timer = null;
             loadDubbedIds().then(apply);
-        }, 250);
+        }, DEBOUNCE_MS);
     }
 
-    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
-    schedule();
+    function start() {
+        if (!document.body) {
+            document.addEventListener('DOMContentLoaded', start, { once: true });
+            return;
+        }
+
+        new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+        schedule();
+    }
+
+    start();
 })();

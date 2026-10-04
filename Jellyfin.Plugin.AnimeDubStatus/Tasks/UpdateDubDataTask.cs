@@ -14,16 +14,19 @@ public class UpdateDubDataTask : IScheduledTask
 {
     private readonly DubDataService _dubData;
     private readonly DubTagger _tagger;
+    private readonly DubStatusIndex _index;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UpdateDubDataTask"/> class.
     /// </summary>
     /// <param name="dubData">Instance of the <see cref="DubDataService"/> class.</param>
     /// <param name="tagger">Instance of the <see cref="DubTagger"/> class.</param>
-    public UpdateDubDataTask(DubDataService dubData, DubTagger tagger)
+    /// <param name="index">Instance of the <see cref="DubStatusIndex"/> class.</param>
+    public UpdateDubDataTask(DubDataService dubData, DubTagger tagger, DubStatusIndex index)
     {
         _dubData = dubData;
         _tagger = tagger;
+        _index = index;
     }
 
     /// <inheritdoc />
@@ -44,6 +47,10 @@ public class UpdateDubDataTask : IScheduledTask
         progress.Report(0);
         await _dubData.UpdateAsync(cancellationToken).ConfigureAwait(false);
         await _tagger.ApplyAsync(new Progress<double>(p => progress.Report(p)), cancellationToken).ConfigureAwait(false);
+
+        // Tags changed, so the web client's list of dubbed series is stale.
+        _index.Invalidate();
+
         progress.Report(100);
     }
 

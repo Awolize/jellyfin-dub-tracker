@@ -3,3 +3,9 @@ obj/
 .vs/
 .idea/
 artifacts
+
+# Scratch space used while investigating other plugins.
+.scratch/
+
+# Reference copies of other plugins' assemblies: not shipped and not referenced.
+lib/
