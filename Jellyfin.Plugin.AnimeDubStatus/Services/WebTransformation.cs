@@ -22,6 +22,11 @@ public static class WebTransformation
     /// </summary>
     public const string DataFileName = "anime-dub-status.json";
 
+    /// <summary>
+    /// The name per-series episode coverage is served under, relative to Jellyfin Web's root.
+    /// </summary>
+    public const string TracksFileName = "anime-dub-status-tracks.json";
+
     private const string BodyCloseTag = "</body>";
 
     private const string ScriptTag =

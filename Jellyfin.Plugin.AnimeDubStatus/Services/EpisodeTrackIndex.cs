@@ -3,6 +3,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.AnimeDubStatus.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -73,6 +76,40 @@ public sealed class EpisodeTrackIndex
         var coverage = Build(seriesId, language, streamType);
         _cache[seriesId] = new CachedCoverage(key, DateTime.UtcNow, coverage);
         return coverage;
+    }
+
+    /// <summary>
+    /// Builds the JSON the web client reads for one series, with an entity tag.
+    /// </summary>
+    /// <param name="seriesId">The series identifier.</param>
+    /// <returns>The payload and an entity tag for it.</returns>
+    public (string Payload, string ETag) GetSnapshot(Guid seriesId)
+    {
+        var configuration = TrackSettings.Current;
+        var coverage = GetCoverage(seriesId);
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            seriesId = seriesId.ToString("N", CultureInfo.InvariantCulture),
+            language = TrackSettings.GetLanguage(configuration).Code,
+            kind = TrackSettings.IsSubtitle(configuration) ? TrackSettings.Sub : TrackSettings.Dub,
+            labeled = TrackSettings.GetBadgeLabel(configuration),
+            released = coverage.Released,
+            present = coverage.Present,
+            percent = coverage.Percent,
+            episodes = coverage.Episodes.Select(episode => new
+            {
+                id = episode.Id.ToString("N", CultureInfo.InvariantCulture),
+                hasTrack = episode.HasTrack,
+                unaired = episode.IsUnaired,
+                language = episode.Language
+            })
+        });
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
+        var etag = string.Concat("\"", Convert.ToHexString(hash, 0, 8).ToLowerInvariant(), "\"");
+
+        return (payload, etag);
     }
 
     /// <summary>

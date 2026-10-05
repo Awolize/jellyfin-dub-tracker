@@ -27,7 +27,8 @@ public sealed class WebUiInjectionStartupFilter : IStartupFilter
         return app =>
         {
             _logger.LogInformation(
-                "Anime Dub Status is installing its Jellyfin Web UI injection middleware");
+                "Anime Dub Status {Version} is installing its Jellyfin Web UI injection middleware",
+                typeof(WebUiInjectionStartupFilter).Assembly.GetName().Version);
 
             app.UseMiddleware<WebUiInjectionMiddleware>();
             next(app);

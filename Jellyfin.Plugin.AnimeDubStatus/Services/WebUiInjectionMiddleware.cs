@@ -48,8 +48,9 @@ public sealed class WebUiInjectionMiddleware
     /// </summary>
     /// <param name="context">The current HTTP context.</param>
     /// <param name="index">Instance of the <see cref="DubStatusIndex"/> class.</param>
+    /// <param name="tracks">Instance of the <see cref="EpisodeTrackIndex"/> class.</param>
     /// <returns>A task that completes when the response is written.</returns>
-    public async Task InvokeAsync(HttpContext context, DubStatusIndex index)
+    public async Task InvokeAsync(HttpContext context, DubStatusIndex index, EpisodeTrackIndex tracks)
     {
         var path = context.Request.Path.Value ?? string.Empty;
         var marker = path.IndexOf(WebRootPrefix, StringComparison.OrdinalIgnoreCase);
@@ -77,6 +78,12 @@ public sealed class WebUiInjectionMiddleware
         if (relative.Equals(WebTransformation.DataFileName, StringComparison.OrdinalIgnoreCase))
         {
             await WriteDataAsync(context, index).ConfigureAwait(false);
+            return;
+        }
+
+        if (relative.Equals(WebTransformation.TracksFileName, StringComparison.OrdinalIgnoreCase))
+        {
+            await WriteTracksAsync(context, tracks).ConfigureAwait(false);
             return;
         }
 
@@ -139,6 +146,35 @@ public sealed class WebUiInjectionMiddleware
 
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/javascript; charset=utf-8";
+        context.Response.ContentLength = bytes.Length;
+        await context.Response.Body.WriteAsync(bytes).ConfigureAwait(false);
+    }
+
+    private static async Task WriteTracksAsync(HttpContext context, EpisodeTrackIndex tracks)
+    {
+        // Served here rather than from the controller because the badge script fetches
+        // anonymously and must not depend on an API token.
+        if (!Guid.TryParse(context.Request.Query["series"].ToString(), out var seriesId))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "text/plain; charset=utf-8";
+            await context.Response.WriteAsync("A series query parameter is required.").ConfigureAwait(false);
+            return;
+        }
+
+        var (payload, etag) = tracks.GetSnapshot(seriesId);
+        context.Response.Headers.ETag = etag;
+        context.Response.Headers.CacheControl = "no-cache";
+
+        if (IsNotModified(context, etag))
+        {
+            context.Response.StatusCode = StatusCodes.Status304NotModified;
+            return;
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "application/json; charset=utf-8";
         context.Response.ContentLength = bytes.Length;
         await context.Response.Body.WriteAsync(bytes).ConfigureAwait(false);
     }
