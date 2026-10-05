@@ -290,17 +290,19 @@
                 continue;
             }
 
-            if (getComputedStyle(host).position === 'static') {
-                host.style.position = 'relative';
-            }
-
             var badge = document.createElement('div');
             badge.className = BADGE_CLASS;
             badge.setAttribute('data-state', state.key);
+
+            // Flowing with the title rather than floating over it, which is what an
+            // absolutely positioned badge does in a text container.
+            badge.style.position = 'static';
+            badge.style.display = 'inline-block';
+            badge.style.margin = '0 .5em';
+            badge.style.verticalAlign = 'middle';
+
             badge.style.background = state.background;
             badge.style.color = state.color;
-            badge.style.top = '50%';
-            badge.style.transform = 'translateY(-50%)';
             badge.textContent = state.text;
             badge.title = state.title;
             badge.setAttribute('aria-label', state.title);
