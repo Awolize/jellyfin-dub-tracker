@@ -6,7 +6,8 @@
     var DATA_URL = 'anime-dub-status.json';
     var TRACKS_URL = 'anime-dub-status-tracks.json';
 
-    var CARD_SELECTOR = '.card[data-id]';
+    // Any item element, not just posters: a season page may list episodes as rows.
+    var CARD_SELECTOR = '[data-id]';
     var ID_ATTRIBUTE = 'data-id';
     var BADGE_CLASS = 'anime-dub-badge';
     var OVERLAY_SELECTORS = ['.cardScalable', '.cardImageContainer', '.cardBox'];
@@ -262,8 +263,17 @@
     }
 
     function apply() {
+        var decorated = new Set();
+
         document.querySelectorAll(CARD_SELECTOR).forEach(function (card) {
-            var state = stateFor(normalize(card.getAttribute(ID_ATTRIBUTE)));
+            var id = normalize(card.getAttribute(ID_ATTRIBUTE));
+
+            // Nested wrappers can repeat an id; decorate only the first, outermost one.
+            if (decorated.has(id)) {
+                return;
+            }
+
+            var state = stateFor(id);
             var existing = card.querySelector('.' + BADGE_CLASS);
 
             if (!state) {
@@ -272,6 +282,8 @@
                 }
                 return;
             }
+
+            decorated.add(id);
 
             // Only rebuild when something actually changed, so the observer stays cheap.
             if (existing
@@ -320,6 +332,30 @@
         new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
         schedule();
     }
+
+    // A one-call explanation of what the script currently believes and what it can see,
+    // so a page that behaves unexpectedly can be diagnosed without guessing.
+    window.animeDubStatus = {
+        report: function () {
+            var items = document.querySelectorAll(CARD_SELECTOR);
+
+            return {
+                label: badgeText,
+                measured: measured,
+                openItem: lastDetailId,
+                taggedSeries: dubbedIds.size,
+                seasonsKnown: seasonPercent.size,
+                episodesMissing: missingEpisodes.size,
+                elementsWithDataId: items.length,
+                badgesDrawn: document.querySelectorAll('.' + BADGE_CLASS).length,
+                samples: Array.prototype.slice.call(items, 0, 12).map(function (element) {
+                    return element.tagName
+                        + '.' + String(element.className || '').split(' ').filter(Boolean).slice(0, 2).join('.')
+                        + ' [' + String(element.getAttribute(ID_ATTRIBUTE)).slice(-6) + ']';
+                })
+            };
+        }
+    };
 
     start();
 })();
