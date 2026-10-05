@@ -50,7 +50,18 @@ public class UpdateDubDataTask : IScheduledTask
     {
         progress.Report(0);
         await _dubData.UpdateAsync(cancellationToken).ConfigureAwait(false);
-        await _tagger.ApplyAsync(new Progress<double>(p => progress.Report(p)), cancellationToken).ConfigureAwait(false);
+
+        // Tags are written item by item, so mark the badge snapshot stale as the run
+        // proceeds. Invalidating only sets a flag and the query happens lazily on the
+        // next request, so this lets badges appear as the re-tag advances instead of
+        // jumping once at the end.
+        var tagProgress = new Progress<double>(value =>
+        {
+            progress.Report(value);
+            _index.Invalidate();
+        });
+
+        await _tagger.ApplyAsync(tagProgress, cancellationToken).ConfigureAwait(false);
 
         // Tags changed, so the web client's list of dubbed series is stale.
         _index.Invalidate();

@@ -12,7 +12,9 @@
 
     // Replaced by the label the server sends, which follows the tracked language.
     var DEFAULT_BADGE_TEXT = 'DUB';
-    var REFRESH_MS = 5 * 60 * 1000;
+    // Short enough that an open tab catches up while a re-tag is still running; the
+    // request is ETag-revalidated, so an unchanged list costs a 304.
+    var REFRESH_MS = 60 * 1000;
     var DEBOUNCE_MS = 250;
 
     var dubbedIds = new Set();
