@@ -10,11 +10,13 @@
     var BADGE_CLASS = 'anime-dub-badge';
     var OVERLAY_SELECTORS = ['.cardScalable', '.cardImageContainer', '.cardBox'];
 
-    var BADGE_TEXT = 'EN DUB';
+    // Replaced by the label the server sends, which follows the tracked language.
+    var DEFAULT_BADGE_TEXT = 'DUB';
     var REFRESH_MS = 5 * 60 * 1000;
     var DEBOUNCE_MS = 250;
 
     var dubbedIds = new Set();
+    var badgeText = DEFAULT_BADGE_TEXT;
     var lastLoad = 0;
     var inFlight = null;
     var timer = null;
@@ -42,7 +44,15 @@
             .then(function (response) {
                 return response.ok ? response.json() : null;
             })
-            .then(function (ids) {
+            .then(function (payload) {
+                // Accepts the current { label, ids } shape and a bare array from
+                // an older server, so a rolling upgrade cannot break the badge.
+                var ids = Array.isArray(payload) ? payload : payload && payload.ids;
+
+                if (payload && !Array.isArray(payload) && typeof payload.label === 'string' && payload.label) {
+                    badgeText = payload.label;
+                }
+
                 if (Array.isArray(ids)) {
                     dubbedIds = new Set(ids.map(normalize));
                     lastLoad = Date.now();
@@ -77,7 +87,13 @@
                 existing.remove();
                 return;
             }
-            if (existing || !dubbed) {
+            if (existing) {
+                if (existing.textContent !== badgeText) {
+                    existing.textContent = badgeText;
+                }
+                return;
+            }
+            if (!dubbed) {
                 return;
             }
 
@@ -88,7 +104,7 @@
 
             var badge = document.createElement('div');
             badge.className = BADGE_CLASS;
-            badge.textContent = BADGE_TEXT;
+            badge.textContent = badgeText;
             host.appendChild(badge);
         });
     }

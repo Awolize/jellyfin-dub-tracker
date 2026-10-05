@@ -15,7 +15,38 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         DataETag = string.Empty;
         MappingETag = string.Empty;
+        Source = TrackSourceCatalog.MyDubList;
+        Language = TrackLanguageCatalog.Default;
+        ConfidenceTier = string.Empty;
+        DatasetKey = string.Empty;
     }
+
+    /// <summary>
+    /// Gets or sets the identifier of the data source to read.
+    /// </summary>
+    public string Source { get; set; }
+
+    /// <summary>
+    /// Gets or sets the code of the language to track.
+    /// </summary>
+    public string Language { get; set; }
+
+    /// <summary>
+    /// Gets or sets the source's confidence tier, where empty means the source default.
+    /// </summary>
+    public string ConfidenceTier { get; set; }
+
+    /// <summary>
+    /// Gets or sets the tag currently applied to the library, recorded so that changing
+    /// the tracked language can remove the tag it left behind.
+    /// </summary>
+    public string? AppliedTagName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the source, tier and language the cached dataset belongs to, so a
+    /// change to any of them re-downloads rather than reusing the wrong file.
+    /// </summary>
+    public string? DatasetKey { get; set; }
 
     /// <summary>
     /// Gets or sets the ETag of the last downloaded dub dataset.

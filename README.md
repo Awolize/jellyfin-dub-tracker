@@ -36,7 +36,7 @@ does not touch files on disk. Instead `WebUiInjectionMiddleware`, installed by
 ```
 GET /web/index.html   → <script id="anime-dub-status-script" src="anime-dub-status.js" defer></script>
 GET /web/anime-dub-status.js    → the badge script (embedded resource)
-GET /web/anime-dub-status.json  → ["<series guid>", …]
+GET /web/anime-dub-status.json  → { "label": "EN DUB", "ids": ["<series guid>", …] }
 ```
 
 The script tag is inserted before the document's final `</body>` and uses a **relative**
@@ -69,10 +69,28 @@ loaded at startup, so a restart is always required, however the files got there.
 
 ## Configuration
 
-There is currently **no user configuration**. The tag name, dataset language, update
-interval, badge text and target item types are all hardcoded; see *Roadmap*. The plugin's
-settings page is still the unmodified Jellyfin template and does not work — tracked as
-the first item on the roadmap.
+Settings live in **Dashboard → Plugins → Anime Dub Status**:
+
+| Setting | Meaning |
+| --- | --- |
+| **Data source** | Which dataset to read. MyDubList is the one shipped source; the catalogue exists so another bulk source is a catalogue entry rather than a pipeline change. |
+| **Language to track** | One of the 27 languages MyDubList publishes. The tag and the badge label both follow it: `German Dub Available`, `DE DUB`. |
+| **Confidence tier** | `very-high`, `high`, `normal` or `low`. Lower tiers include less certain entries, so more titles match at the risk of false positives. |
+
+Changing the language renames the tag and strips the previous one from the library on the
+next tagging run, so nothing stale is left behind — including the `English Dub Available`
+tag that versions before 1.4 applied. Saving the page also asks Jellyfin to run the
+**Update dub data** scheduled task, so a change applies without a restart.
+
+The page reads its options from the plugin's own `GET /AnimeDubStatus/options` endpoint,
+so the dropdowns cannot drift from what the plugin actually supports.
+
+Two caveats about upstream coverage. MyDubList publishes 27 languages but **11 of them are
+empty** — Arabic, Catalan, Danish, Dutch, Finnish, Indonesian, Lithuanian, Norwegian,
+Russian, Turkish and Vietnamese — and several more are small (Hebrew, Swedish, Tagalog and
+Thai are the next smallest). Selecting one of those is valid and simply produces no tags.
+The datasets also carry a **`partial`** array, for titles where only some seasons or
+episodes are dubbed, which the plugin ignores; see *Roadmap*.
 
 ## Troubleshooting
 
@@ -114,18 +132,17 @@ plugin or its derived data, keep the attribution.
 
 ## Roadmap
 
-The plugin is currently narrower than it needs to be: one language, one track kind
-(dubbed audio), one media type (series), one data source. The natural generalisation is a
-`(language, kind)` pair where `kind` is `Dub` or `Sub`, giving tags such as
-`German Sub Available`, with availability supplied by pluggable providers.
+The plugin tracks one track kind (dubbed audio) and one media type (series); the source,
+language and confidence tier are configurable. The next generalisation is to treat
+availability as a `(language, kind)` pair, where `kind` is `Dub` or `Sub`, giving tags such
+as `German Sub Available`.
 
-### Languages
+### Partially dubbed titles
 
-MyDubList already publishes about twenty languages under
-`dubs/confidence/<tier>/dubbed_<language>.json`, including `dubbed_german.json`, and the
-same file also exists at confidence tiers `very-high`, `high`, `normal` and `low`
-(4275 / 4631 / 4999 / 5657 titles respectively). Supporting another language for anime is
-therefore close to a configuration change rather than a new integration.
+Every MyDubList dataset carries a `partial` array beside `dubbed`, holding titles where
+only some seasons or episodes have a dub. The plugin ignores it, so a series whose dub
+covers only the first season shows no badge at all. The tagging run logs the count whenever
+a dataset has any, which is the cheapest way to decide whether supporting it matters.
 
 ### Subtitles, and non-anime TV
 
@@ -155,6 +172,9 @@ series, quota-limited, cached for weeks, and probably opt-in per library.
   `BaseItemKind.Series` only.
 - **Only MAL and AniList provider IDs are matched**, so items identified only by TVDB,
   TMDB or IMDb never qualify.
+- **Empty upstream languages are still selectable.** 11 of the 27 MyDubList languages have
+  no titles at all, and nothing in the settings page says so; the count only becomes
+  visible after a tagging run.
 - **Startup always rescans the whole library**: `UpdateDubDataTask` discards the
   "anything new downloaded" result from `DubDataService.UpdateAsync` and calls
   `DubTagger.ApplyAsync` unconditionally.
@@ -171,11 +191,15 @@ dotnet build -c Release
 
 | Path | Purpose |
 | --- | --- |
-| `Services/DubDataService.cs` | Downloads, caches and queries the MyDubList data |
-| `Services/DubTagger.cs` | Applies the tag to library series |
+| `Configuration/TrackSourceCatalog.cs` | The data sources, and where each keeps its datasets |
+| `Configuration/TrackLanguageCatalog.cs` | The 27 languages, with the display names the datasets use |
+| `Configuration/TrackSettings.cs` | Derives the tag, badge label and data locations from configuration |
+| `Services/DubDataService.cs` | Downloads, caches and queries the configured dataset |
+| `Services/DubTagger.cs` | Applies the tag to library series, and strips the previous one |
 | `Services/DubStatusIndex.cs` | Cached tagged-series list served to the web client |
 | `Services/WebUiInjectionMiddleware.cs` | Injects the script and serves the web assets |
 | `Services/WebTransformation.cs` | The `index.html` splice, as a pure function |
+| `Api/OptionsController.cs` | Serves the settings choices to the configuration page |
 | `Web/badge.js` | The client script (embedded in the DLL) |
 | `Api/BadgeController.cs` | Manual-testing route for the script |
 

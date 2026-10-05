@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.AnimeDubStatus.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -12,7 +13,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.AnimeDubStatus.Services;
 
 /// <summary>
-/// Caches the library series that currently carry the English dub tag.
+/// Caches the library series that carry the tracked language's dub tag.
 /// </summary>
 /// <remarks>
 /// Dub status is a library-wide fact rather than a per-user one, so the web client
@@ -21,15 +22,15 @@ namespace Jellyfin.Plugin.AnimeDubStatus.Services;
 public sealed class DubStatusIndex
 {
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(5);
-    private static readonly string[] TagFilter = [DubTagger.TagName];
 
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<DubStatusIndex> _logger;
     private readonly object _sync = new();
 
-    private string _payload = "[]";
+    private string _payload = "{\"label\":\"\",\"ids\":[]}";
     private string _etag = "\"0\"";
     private DateTime _builtUtc = DateTime.MinValue;
+    private string? _snapshotKey;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DubStatusIndex"/> class.
@@ -50,20 +51,31 @@ public sealed class DubStatusIndex
         lock (_sync)
         {
             _builtUtc = DateTime.MinValue;
+            _snapshotKey = null;
         }
     }
 
     /// <summary>
-    /// Gets the current snapshot of dubbed series identifiers.
+    /// Gets the current snapshot of dubbed series identifiers and the badge label.
     /// </summary>
     /// <returns>The JSON payload and an entity tag for it.</returns>
     public (string Payload, string ETag) GetSnapshot()
     {
+        var configuration = TrackSettings.Current;
+        var tagName = TrackSettings.GetTagName(configuration);
+        var label = TrackSettings.GetBadgeLabel(configuration);
+
+        // The tag and the label both follow the tracked language, so a snapshot built
+        // for a different selection must not be served.
+        var key = string.Concat(tagName, "|", label);
+
         lock (_sync)
         {
-            if (_builtUtc == DateTime.MinValue || DateTime.UtcNow - _builtUtc > CacheLifetime)
+            if (!string.Equals(_snapshotKey, key, StringComparison.Ordinal)
+                || _builtUtc == DateTime.MinValue
+                || DateTime.UtcNow - _builtUtc > CacheLifetime)
             {
-                Rebuild();
+                Rebuild(tagName, label, key);
             }
 
             return (_payload, _etag);
@@ -79,13 +91,13 @@ public sealed class DubStatusIndex
             "\"");
     }
 
-    private void Rebuild()
+    private void Rebuild(string tagName, string label, string key)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Series],
             Recursive = true,
-            Tags = TagFilter
+            Tags = [tagName]
         });
 
         // Dashless lowercase so the client can compare directly against a card's data-id.
@@ -93,15 +105,21 @@ public sealed class DubStatusIndex
             .Select(item => item.Id.ToString("N", CultureInfo.InvariantCulture))
             .ToArray();
 
-        var payload = JsonSerializer.Serialize(ids);
-        var bytes = Encoding.UTF8.GetBytes(payload);
+        var payload = string.Concat(
+            "{\"label\":",
+            JsonSerializer.Serialize(label),
+            ",\"ids\":",
+            JsonSerializer.Serialize(ids),
+            "}");
 
         _payload = payload;
-        _etag = ComputeETag(bytes);
+        _etag = ComputeETag(Encoding.UTF8.GetBytes(payload));
         _builtUtc = DateTime.UtcNow;
+        _snapshotKey = key;
 
         _logger.LogInformation(
-            "Dub status index rebuilt: {Count} tagged series",
+            "Dub status index rebuilt for {Tag}: {Count} series",
+            tagName,
             ids.Length);
     }
 }

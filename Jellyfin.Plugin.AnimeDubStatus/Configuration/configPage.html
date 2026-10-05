@@ -2,77 +2,227 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Template</title>
+    <title>Anime Dub Status</title>
 </head>
 <body>
-    <div id="TemplateConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div id="AnimeDubStatusConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
         <div data-role="content">
             <div class="content-primary">
-                <form id="TemplateConfigForm">
+                <form id="AnimeDubStatusConfigForm">
                     <div class="selectContainer">
-                        <label class="selectLabel" for="Options">Several Options</label>
-                        <select is="emby-select" id="Options" name="Options" class="emby-select-withcolor emby-select">
-                            <option id="optOneOption" value="OneOption">One Option</option>
-                            <option id="optAnotherOption" value="AnotherOption">Another Option</option>
-                        </select>
+                        <label class="selectLabel" for="Source">Data source</label>
+                        <select id="Source" name="Source" class="emby-select-withcolor emby-select"></select>
+                        <div class="fieldDescription" id="SourceDescription"></div>
                     </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="AnInteger">An Integer</label>
-                        <input id="AnInteger" name="AnInteger" type="number" is="emby-input" min="0" />
-                        <div class="fieldDescription">A Description</div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="Language">Language to track</label>
+                        <select id="Language" name="Language" class="emby-select-withcolor emby-select"></select>
+                        <div class="fieldDescription">
+                            Series dubbed in this language are tagged and badged in the web interface.
+                        </div>
                     </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="TrueFalseSetting" name="TrueFalseCheckBox" type="checkbox" is="emby-checkbox" />
-                            <span>A Checkbox</span>
-                        </label>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="ConfidenceTier">Confidence tier</label>
+                        <select id="ConfidenceTier" name="ConfidenceTier" class="emby-select-withcolor emby-select"></select>
+                        <div class="fieldDescription">
+                            Lower tiers include less certain entries, so more titles match at the
+                            risk of false positives.
+                        </div>
                     </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="AString">A String</label>
-                        <input id="AString" name="AString" type="text" is="emby-input" />
-                        <div class="fieldDescription">Another Description</div>
-                    </div>
+
+                    <div class="fieldDescription" id="DatasetState"></div>
+                    <div class="fieldDescription" id="AppliedTag"></div>
+                    <div class="fieldDescription" id="Attribution"></div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
                         </button>
                     </div>
+
+                    <div class="fieldDescription" id="SaveStatus"></div>
                 </form>
             </div>
         </div>
+
         <script type="text/javascript">
-            var TemplateConfig = {
-                pluginUniqueId: 'eb5d7894-8eef-4b36-aa6f-5d124e828ce1'
-            };
+            (function () {
+                'use strict';
 
-            document.querySelector('#TemplateConfigPage')
-                .addEventListener('pageshow', function() {
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(TemplateConfig.pluginUniqueId).then(function (config) {
-                        document.querySelector('#Options').value = config.Options;
-                        document.querySelector('#AnInteger').value = config.AnInteger;
-                        document.querySelector('#TrueFalseSetting').checked = config.TrueFalseSetting;
-                        document.querySelector('#AString').value = config.AString;
-                        Dashboard.hideLoadingMsg();
+                var PLUGIN_ID = '7ed22e99-eacf-47e9-9b35-991b229743b7';
+                var TASK_KEY = 'AnimeDubStatusUpdateData';
+
+                var sources = [];
+
+                function byId(id) {
+                    return document.getElementById(id);
+                }
+
+                function setStatus(message) {
+                    byId('SaveStatus').textContent = message || '';
+                }
+
+                function fillSelect(select, items, value, labelOf) {
+                    select.innerHTML = '';
+                    items.forEach(function (item) {
+                        var option = document.createElement('option');
+                        option.value = item.value;
+                        option.textContent = labelOf(item);
+                        select.appendChild(option);
                     });
+                    if (value) {
+                        select.value = value;
+                    }
+                }
+
+                function currentSource() {
+                    var id = byId('Source').value;
+                    for (var i = 0; i < sources.length; i++) {
+                        if (sources[i].id === id) {
+                            return sources[i];
+                        }
+                    }
+                    return sources.length ? sources[0] : null;
+                }
+
+                // The tiers belong to the source, so they follow the source selection.
+                function fillTiers(configurationTier) {
+                    var source = currentSource();
+                    if (!source) {
+                        return;
+                    }
+
+                    var tiers = source.tiers.map(function (tier) {
+                        return { value: tier, label: tier };
+                    });
+
+                    fillSelect(
+                        byId('ConfidenceTier'),
+                        tiers,
+                        configurationTier || source.defaultTier,
+                        function (tier) { return tier.label; });
+
+                    byId('SourceDescription').textContent = source.attribution;
+                }
+
+                function describeState(options) {
+                    byId('Attribution').textContent = options.current.attribution;
+
+                    var state = options.current.dubbedTitleCount + ' titles currently loaded';
+                    if (options.current.lastUpdatedUtc) {
+                        state += ', data last changed ' +
+                            new Date(options.current.lastUpdatedUtc).toLocaleString();
+                    }
+                    byId('DatasetState').textContent = state;
+
+                    byId('AppliedTag').textContent = options.current.appliedTagName
+                        ? 'Currently tagged in the library: "' + options.current.appliedTagName + '"'
+                        : 'The library has not been tagged yet.';
+                }
+
+                function applyOptions(options) {
+                    sources = options.sources;
+
+                    fillSelect(
+                        byId('Source'),
+                        sources.map(function (source) {
+                            return { value: source.id, label: source.name, tiers: source.tiers, defaultTier: source.defaultTier, attribution: source.attribution };
+                        }),
+                        options.current.source,
+                        function (source) { return source.label; });
+
+                    fillSelect(
+                        byId('Language'),
+                        options.languages.map(function (language) {
+                            return { value: language.code, label: language.name + ' (' + language.label + ')' };
+                        }),
+                        options.current.language,
+                        function (language) { return language.label; });
+
+                    fillTiers(options.current.confidenceTier);
+                    describeState(options);
+                }
+
+                function init() {
+                    // pageshow retries this once the dashboard has finished setting up.
+                    if (typeof ApiClient === 'undefined') {
+                        return;
+                    }
+
+                    ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('AnimeDubStatus/options'),
+                        dataType: 'json'
+                    }).then(function (options) {
+                        return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (configuration) {
+                            applyOptions(options);
+                            if (configuration.Source) {
+                                byId('Source').value = configuration.Source;
+                            }
+                            if (configuration.Language) {
+                                byId('Language').value = configuration.Language;
+                            }
+                            fillTiers(configuration.ConfidenceTier);
+                        });
+                    }).catch(function () {
+                        setStatus('Could not load settings from the server.');
+                    });
+                }
+
+                // Run the scheduled task, so a language change takes effect without a restart.
+                function refreshData() {
+                    return ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('ScheduledTasks'),
+                        dataType: 'json'
+                    }).then(function (tasks) {
+                        var task = tasks.filter(function (candidate) {
+                            return candidate.Key === TASK_KEY;
+                        })[0];
+
+                        if (!task) {
+                            setStatus('Saved. Run the "Update dub data" scheduled task to apply it.');
+                            return;
+                        }
+
+                        return ApiClient.ajax({
+                            type: 'POST',
+                            url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id)
+                        }).then(function () {
+                            setStatus('Saved. The dub data is being refreshed now.');
+                        });
+                    }).catch(function () {
+                        setStatus('Saved. Run the "Update dub data" scheduled task to apply it.');
+                    });
+                }
+
+                byId('Source').addEventListener('change', function () {
+                    fillTiers(null);
                 });
 
-            document.querySelector('#TemplateConfigForm')
-                .addEventListener('submit', function(e) {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(TemplateConfig.pluginUniqueId).then(function (config) {
-                    config.Options = document.querySelector('#Options').value;
-                    config.AnInteger = document.querySelector('#AnInteger').value;
-                    config.TrueFalseSetting = document.querySelector('#TrueFalseSetting').checked;
-                    config.AString = document.querySelector('#AString').value;
-                    ApiClient.updatePluginConfiguration(TemplateConfig.pluginUniqueId, config).then(function (result) {
-                        Dashboard.processPluginConfigurationUpdateResult(result);
+                byId('AnimeDubStatusConfigForm').addEventListener('submit', function (event) {
+                    event.preventDefault();
+                    setStatus('Saving...');
+
+                    ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (configuration) {
+                        configuration.Source = byId('Source').value;
+                        configuration.Language = byId('Language').value;
+                        configuration.ConfidenceTier = byId('ConfidenceTier').value;
+
+                        return ApiClient.updatePluginConfiguration(PLUGIN_ID, configuration)
+                            .then(refreshData);
+                    }).catch(function () {
+                        setStatus('Could not save the settings.');
                     });
+
+                    return false;
                 });
 
-                e.preventDefault();
-                return false;
-            });
+                init();
+                byId('AnimeDubStatusConfigPage').addEventListener('pageshow', init);
+            })();
         </script>
     </div>
 </body>
