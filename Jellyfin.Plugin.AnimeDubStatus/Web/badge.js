@@ -4,13 +4,14 @@
     // Served next to index.html by the plugin's own middleware, so this stays valid
     // behind a Jellyfin base URL and needs no API client or authentication.
     var DATA_URL = 'anime-dub-status.json';
+    var TRACKS_URL = 'anime-dub-status-tracks.json';
 
     var CARD_SELECTOR = '.card[data-id]';
     var ID_ATTRIBUTE = 'data-id';
     var BADGE_CLASS = 'anime-dub-badge';
     var OVERLAY_SELECTORS = ['.cardScalable', '.cardImageContainer', '.cardBox'];
 
-    // Replaced by the label the server sends, which follows the tracked language.
+    // Replaced by the label the server sends, which follows the tracked language and kind.
     var DEFAULT_BADGE_TEXT = 'DUB';
     var REFRESH_MS = 60 * 1000;
     var DEBOUNCE_MS = 250;
@@ -18,13 +19,20 @@
     var GREEN = '#4caf50';
     var YELLOW = '#f5b301';
     var NEUTRAL = '#607d8b';
+    var MISSING = '#d32f2f';
 
     var dubbedIds = new Set();
     var coverage = new Map();
     var measured = false;
     var badgeText = DEFAULT_BADGE_TEXT;
+
+    var seasonPercent = new Map();
+    var missingEpisodes = new Set();
+    var lastDetailId = null;
+
     var lastLoad = 0;
     var inFlight = null;
+    var detailInFlight = null;
     var timer = null;
 
     var style = document.createElement('style');
@@ -85,9 +93,147 @@
         return inFlight;
     }
 
-    // The fill is the share of released episodes the library holds; the colour separates
-    // "not looked yet" from "none of it" from "all of it".
+    // Which item's page is open, from Jellyfin's hash route.
+    function currentDetailId() {
+        var hash = window.location.hash || '';
+        if (hash.indexOf('/details') < 0) {
+            return null;
+        }
+
+        var separator = hash.indexOf('?');
+        if (separator < 0) {
+            return null;
+        }
+
+        var id = new URLSearchParams(hash.slice(separator + 1)).get('id');
+        return id ? normalize(id) : null;
+    }
+
+    // One request per page drives both the season fills and the episode marks: for a
+    // series it lists every episode with its season, for a season just its own.
+    function loadDetail() {
+        var id = currentDetailId();
+
+        if (!id) {
+            seasonPercent = new Map();
+            missingEpisodes = new Set();
+            lastDetailId = null;
+            return Promise.resolve();
+        }
+
+        if (id === lastDetailId) {
+            return detailInFlight || Promise.resolve();
+        }
+
+        lastDetailId = id;
+
+        detailInFlight = fetch(TRACKS_URL + '?series=' + id, { cache: 'no-cache', credentials: 'same-origin' })
+            .then(function (response) {
+                return response.ok ? response.json() : null;
+            })
+            .then(function (data) {
+                var seasons = new Map();
+                var missing = new Set();
+                var perSeason = new Map();
+
+                if (typeof data.labeled === 'string' && data.labeled) {
+                    badgeText = data.labeled;
+                }
+
+                (data && Array.isArray(data.episodes) ? data.episodes : []).forEach(function (episode) {
+                    var episodeId = normalize(episode.id);
+
+                    // An episode that has not aired cannot be missing anything yet.
+                    if (!episode.unaired && !episode.hasTrack) {
+                        missing.add(episodeId);
+                    }
+
+                    if (!episode.seasonId) {
+                        return;
+                    }
+
+                    var seasonId = normalize(episode.seasonId);
+                    var counts = seasons.get(seasonId) || { released: 0, present: 0 };
+
+                    if (!episode.unaired) {
+                        counts.released++;
+                        if (episode.hasTrack) {
+                            counts.present++;
+                        }
+                    }
+
+                    seasons.set(seasonId, counts);
+                });
+
+                seasons.forEach(function (counts, seasonId) {
+                    perSeason.set(
+                        seasonId,
+                        counts.released === 0
+                            ? null
+                            : Math.round(100 * counts.present / counts.released));
+                });
+
+                seasonPercent = perSeason;
+                missingEpisodes = missing;
+            })
+            .catch(function () {
+                // Ignore; the next page change retries.
+            })
+            .then(function () {
+                detailInFlight = null;
+            });
+
+        return detailInFlight;
+    }
+
+    function measuredState(percent, label) {
+        if (percent >= 100) {
+            return {
+                key: 'full',
+                text: label,
+                background: GREEN,
+                color: '#000',
+                title: label + ': every released episode is in your library'
+            };
+        }
+
+        if (percent <= 0) {
+            return {
+                key: 'none',
+                text: label,
+                background: YELLOW,
+                color: '#000',
+                title: label + ': it exists, but none of it is in your library'
+            };
+        }
+
+        return {
+            key: 'partial',
+            text: label + ' ' + percent + '%',
+            background: 'linear-gradient(90deg,' + GREEN + ' 0 ' + percent + '%,' + YELLOW + ' ' + percent + '% 100%)',
+            color: '#000',
+            title: label + ': ' + percent + '% of released episodes are in your library'
+        };
+    }
+
+    // A season row on a show page, an episode that is missing the track, or a card for a
+    // series whose dub the library only partly holds.
     function stateFor(id) {
+        if (seasonPercent.has(id)) {
+            var seasonValue = seasonPercent.get(id);
+            return seasonValue === null ? null : measuredState(seasonValue, badgeText);
+        }
+
+        if (missingEpisodes.has(id)) {
+            return {
+                key: 'missing-episode',
+                text: 'NO ' + badgeText,
+                background: MISSING,
+                color: '#fff',
+                title: badgeText + ': this episode does not carry that track'
+            };
+        }
+
         if (!dubbedIds.has(id)) {
             return null;
         }
@@ -102,35 +248,7 @@
             };
         }
 
-        var percent = coverage.has(id) ? coverage.get(id) : 0;
-
-        if (percent >= 100) {
-            return {
-                key: 'full',
-                text: badgeText,
-                background: GREEN,
-                color: '#000',
-                title: badgeText + ': every released episode is in your library'
-            };
-        }
-
-        if (percent <= 0) {
-            return {
-                key: 'none',
-                text: badgeText,
-                background: YELLOW,
-                color: '#000',
-                title: badgeText + ': the dub exists, but none of it is in your library'
-            };
-        }
-
-        return {
-            key: 'partial',
-            text: badgeText + ' ' + percent + '%',
-            background: 'linear-gradient(90deg,' + GREEN + ' 0 ' + percent + '%,' + YELLOW + ' ' + percent + '% 100%)',
-            color: '#000',
-            title: badgeText + ': ' + percent + '% of released episodes are in your library'
-        };
+        return measuredState(coverage.has(id) ? coverage.get(id) : 0, badgeText);
     }
 
     function findOverlay(card) {
@@ -189,7 +307,7 @@
         }
         timer = setTimeout(function () {
             timer = null;
-            loadDubbedIds().then(apply);
+            Promise.all([loadDubbedIds(), loadDetail()]).then(apply);
         }, DEBOUNCE_MS);
     }
 

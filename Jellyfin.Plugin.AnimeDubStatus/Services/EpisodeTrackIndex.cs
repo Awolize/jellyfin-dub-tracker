@@ -143,6 +143,7 @@ public sealed class EpisodeTrackIndex
             episodes = coverage.Episodes.Select(episode => new
             {
                 id = episode.Id.ToString("N", CultureInfo.InvariantCulture),
+                seasonId = episode.SeasonId.ToString("N", CultureInfo.InvariantCulture),
                 hasTrack = episode.HasTrack,
                 unaired = episode.IsUnaired,
                 language = episode.Language
@@ -213,7 +214,7 @@ public sealed class EpisodeTrackIndex
         foreach (var episode in episodes)
         {
             var (hasTrack, streamLanguage) = Inspect(episode, language, streamType, cultures);
-            states.Add(new EpisodeTrack(episode.Id, hasTrack, episode.IsUnaired, streamLanguage));
+            states.Add(new EpisodeTrack(episode.Id, episode.ParentId, hasTrack, episode.IsUnaired, streamLanguage));
         }
 
         var result = TrackCoverage.Compute(states.Select(state => new EpisodeTrackFact(state.HasTrack, state.IsUnaired)));

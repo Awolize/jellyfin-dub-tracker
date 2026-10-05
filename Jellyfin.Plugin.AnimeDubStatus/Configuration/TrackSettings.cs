@@ -84,12 +84,14 @@ public static class TrackSettings
         string.Concat(GetLanguage(configuration).DisplayName, " Dub Available");
 
     /// <summary>
-    /// Gets the label drawn on a card, such as <c>DE DUB</c>.
+    /// Gets the label drawn on a card, such as <c>DE DUB</c> or <c>EN SUB</c>.
     /// </summary>
     /// <param name="configuration">The plugin configuration.</param>
     /// <returns>The badge label.</returns>
     public static string GetBadgeLabel(PluginConfiguration configuration) =>
-        string.Concat(GetLanguage(configuration).BadgeLabel, " DUB");
+        string.Concat(
+            GetLanguage(configuration).BadgeLabel,
+            IsSubtitle(configuration) ? " SUB" : " DUB");
 
     /// <summary>
     /// Gets the source, tier and language combination the cached data belongs to.
