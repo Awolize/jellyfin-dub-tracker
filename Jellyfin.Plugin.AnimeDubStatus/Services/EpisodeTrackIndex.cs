@@ -208,6 +208,14 @@ public sealed class EpisodeTrackIndex
         var itemType = item?.GetType().Name ?? "unknown";
         var episodes = FindEpisodes(seriesId, itemType, out var strategy);
 
+        // A playable item has no descendants to walk, so its own state belongs in the
+        // answer. Without this an episode's page reports nothing about itself.
+        if (item is Video video && !episodes.Any(candidate => candidate.Id == video.Id))
+        {
+            episodes = [video, .. episodes];
+            strategy = string.Concat(itemType, "/self");
+        }
+
         var cultures = _localization.GetCultures().ToList();
         var states = new List<EpisodeTrack>(episodes.Count);
 

@@ -31,6 +31,17 @@
     var missingEpisodes = new Set();
     var lastDetailId = null;
 
+    // A detail page for a playable item need not carry that item's id anywhere, so the
+    // badge for the page itself goes beside its title instead.
+    var DETAIL_TARGETS = [
+        '.detailPagePrimaryContainer .itemName',
+        '.detailPagePrimaryContainer',
+        '.itemName',
+        '.nameContainer'
+    ];
+    var detailBadge = null;
+    var detailBadgeTarget = null;
+
     var lastLoad = 0;
     var inFlight = null;
     var detailInFlight = null;
@@ -262,6 +273,45 @@
         return card;
     }
 
+    function removeDetailBadge() {
+        if (detailBadge) {
+            detailBadge.remove();
+            detailBadge = null;
+            detailBadgeTarget = null;
+        }
+    }
+
+    function injectDetailBadge(state) {
+        removeDetailBadge();
+
+        for (var i = 0; i < DETAIL_TARGETS.length; i++) {
+            var host = document.querySelector(DETAIL_TARGETS[i]);
+            if (!host) {
+                continue;
+            }
+
+            if (getComputedStyle(host).position === 'static') {
+                host.style.position = 'relative';
+            }
+
+            var badge = document.createElement('div');
+            badge.className = BADGE_CLASS;
+            badge.setAttribute('data-state', state.key);
+            badge.style.background = state.background;
+            badge.style.color = state.color;
+            badge.style.top = '50%';
+            badge.style.transform = 'translateY(-50%)';
+            badge.textContent = state.text;
+            badge.title = state.title;
+            badge.setAttribute('aria-label', state.title);
+            host.appendChild(badge);
+
+            detailBadge = badge;
+            detailBadgeTarget = DETAIL_TARGETS[i];
+            return;
+        }
+    }
+
     function apply() {
         var decorated = new Set();
 
@@ -311,6 +361,14 @@
             badge.setAttribute('aria-label', state.title);
             host.appendChild(badge);
         });
+
+        // The page's own item, when nothing on it carries that item's id.
+        var openId = lastDetailId;
+        if (openId && missingEpisodes.has(openId) && !decorated.has(openId)) {
+            injectDetailBadge(stateFor(openId));
+        } else {
+            removeDetailBadge();
+        }
     }
 
     function schedule() {
@@ -348,6 +406,7 @@
                 episodesMissing: missingEpisodes.size,
                 elementsWithDataId: items.length,
                 badgesDrawn: document.querySelectorAll('.' + BADGE_CLASS).length,
+                detailBadgeTarget: detailBadgeTarget,
                 samples: Array.prototype.slice.call(items, 0, 12).map(function (element) {
                     return element.tagName
                         + '.' + String(element.className || '').split(' ').filter(Boolean).slice(0, 2).join('.')
