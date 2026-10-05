@@ -35,6 +35,7 @@ public sealed class EpisodeTrackIndex
     private readonly ILogger<EpisodeTrackIndex> _logger;
     private readonly ConcurrentDictionary<Guid, CachedCoverage> _cache = new();
     private volatile IReadOnlyDictionary<Guid, int> _libraryCoverage = new Dictionary<Guid, int>();
+    private volatile IReadOnlyCollection<Guid> _libraryMissing = [];
     private volatile bool _hasMeasured;
     private string? _measuredKey;
 
@@ -68,6 +69,18 @@ public sealed class EpisodeTrackIndex
     /// force, so a client can tell "none of it" apart from "not looked yet".
     /// </summary>
     public bool HasMeasured => _hasMeasured && IsCurrentMeasurement;
+
+    /// <summary>
+    /// Gets the episodes missing the track, across the series the library partly holds.
+    /// </summary>
+    /// <remarks>
+    /// Sent with the library-wide payload so that episode cards are markable on pages
+    /// that are not a detail page, such as the home screen's Next Up row. Series the
+    /// library holds none of are left out, since their cards already say so and marking
+    /// every episode of them would be noise.
+    /// </remarks>
+    public IReadOnlyCollection<Guid> MissingEpisodes =>
+        IsCurrentMeasurement ? _libraryMissing : [];
 
     /// <summary>
     /// Gets a value indicating whether the last measurement belongs to the language and
@@ -170,6 +183,7 @@ public sealed class EpisodeTrackIndex
         ArgumentNullException.ThrowIfNull(seriesIds);
 
         var measured = new Dictionary<Guid, int>(seriesIds.Count);
+        var missing = new List<Guid>();
 
         _logger.LogInformation("Measuring coverage for {Total} series", seriesIds.Count);
 
@@ -185,6 +199,14 @@ public sealed class EpisodeTrackIndex
                 if (coverage.Percent > 0)
                 {
                     measured[seriesId] = coverage.Percent;
+
+                    foreach (var episode in coverage.Episodes)
+                    {
+                        if (!episode.IsUnaired && !episode.HasTrack)
+                        {
+                            missing.Add(episode.Id);
+                        }
+                    }
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -194,6 +216,7 @@ public sealed class EpisodeTrackIndex
         }
 
         _libraryCoverage = measured;
+        _libraryMissing = missing;
         _hasMeasured = true;
         _measuredKey = CurrentKey;
 
@@ -210,6 +233,7 @@ public sealed class EpisodeTrackIndex
     {
         _cache.Clear();
         _libraryCoverage = new Dictionary<Guid, int>();
+        _libraryMissing = [];
         _hasMeasured = false;
     }
 

@@ -28,6 +28,7 @@
 
     var dubbedIds = new Set();
     var coverage = new Map();
+    var libraryMissing = new Set();
     var measured = false;
     var badgeText = DEFAULT_BADGE_TEXT;
 
@@ -80,6 +81,7 @@
                 var ids = Array.isArray(payload) ? payload : payload && payload.ids;
 
                 coverage = new Map();
+                libraryMissing = new Set();
 
                 if (payload && !Array.isArray(payload)) {
                     if (typeof payload.label === 'string' && payload.label) {
@@ -92,6 +94,12 @@
                         Object.keys(payload.covered).forEach(function (key) {
                             coverage.set(normalize(key), payload.covered[key]);
                         });
+                    }
+
+                    // Missing episodes for the whole library, which is what lets the home
+                    // page's Next Up row be marked without a per-page request.
+                    if (Array.isArray(payload.missing)) {
+                        libraryMissing = new Set(payload.missing.map(normalize));
                     }
                 }
 
@@ -277,7 +285,7 @@
             return seasonValue === null ? null : measuredState(seasonValue, badgeText);
         }
 
-        if (missingEpisodes.has(id)) {
+        if (missingEpisodes.has(id) || libraryMissing.has(id)) {
             return {
                 key: 'missing-episode',
                 text: 'NO ' + badgeText,
@@ -524,6 +532,7 @@
                 taggedSeries: dubbedIds.size,
                 seasonsKnown: seasonPercent.size,
                 episodesMissing: missingEpisodes.size,
+                libraryMissing: libraryMissing.size,
                 elementsWithDataId: items.length,
                 badgesDrawn: document.querySelectorAll('.' + BADGE_CLASS).length,
                 detailBadgeTarget: detailBadgeTarget,

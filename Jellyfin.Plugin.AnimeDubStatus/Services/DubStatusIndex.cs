@@ -139,6 +139,12 @@ public sealed class DubStatusIndex
             }
         }
 
+        // Episodes missing the track within the series the library partly holds, so that
+        // episode cards can be marked on pages that are not a detail page.
+        var missing = _tracks.MissingEpisodes
+            .Select(id => id.ToString("N", CultureInfo.InvariantCulture))
+            .ToArray();
+
         var payload = string.Concat(
             "{\"label\":",
             JsonSerializer.Serialize(label),
@@ -148,6 +154,8 @@ public sealed class DubStatusIndex
             JsonSerializer.Serialize(ids),
             ",\"covered\":",
             JsonSerializer.Serialize(covered),
+            ",\"missing\":",
+            JsonSerializer.Serialize(missing),
             "}");
 
         _payload = payload;
