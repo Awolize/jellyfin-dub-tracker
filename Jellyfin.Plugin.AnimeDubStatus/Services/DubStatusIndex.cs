@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
@@ -24,6 +25,7 @@ public sealed class DubStatusIndex
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(5);
 
     private readonly ILibraryManager _libraryManager;
+    private readonly EpisodeTrackIndex _tracks;
     private readonly ILogger<DubStatusIndex> _logger;
     private readonly object _sync = new();
 
@@ -31,17 +33,33 @@ public sealed class DubStatusIndex
     private string _etag = "\"0\"";
     private DateTime _builtUtc = DateTime.MinValue;
     private string? _snapshotKey;
+    private Guid[] _taggedIds = [];
     private int _count;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DubStatusIndex"/> class.
     /// </summary>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="tracks">Instance of the <see cref="EpisodeTrackIndex"/> class.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{DubStatusIndex}"/> interface.</param>
-    public DubStatusIndex(ILibraryManager libraryManager, ILogger<DubStatusIndex> logger)
+    public DubStatusIndex(
+        ILibraryManager libraryManager,
+        EpisodeTrackIndex tracks,
+        ILogger<DubStatusIndex> logger)
     {
         _libraryManager = libraryManager;
+        _tracks = tracks;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Gets the series currently carrying the tag, building the snapshot when needed.
+    /// </summary>
+    /// <returns>The tagged series identifiers.</returns>
+    public IReadOnlyList<Guid> GetTaggedSeriesIds()
+    {
+        GetSnapshot();
+        return _taggedIds;
     }
 
     /// <summary>
@@ -107,11 +125,29 @@ public sealed class DubStatusIndex
             .Select(item => item.Id.ToString("N", CultureInfo.InvariantCulture))
             .ToArray();
 
+        _taggedIds = items.Select(item => item.Id).ToArray();
+
+        // How much of each tagged series the library actually holds. Measured during the
+        // scheduled run, so this is a dictionary read rather than a per-episode scan.
+        var coverage = _tracks.LibraryCoverage;
+        var covered = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            if (coverage.TryGetValue(item.Id, out var percent))
+            {
+                covered[item.Id.ToString("N", CultureInfo.InvariantCulture)] = percent;
+            }
+        }
+
         var payload = string.Concat(
             "{\"label\":",
             JsonSerializer.Serialize(label),
+            ",\"measured\":",
+            _tracks.HasMeasured ? "true" : "false",
             ",\"ids\":",
             JsonSerializer.Serialize(ids),
+            ",\"covered\":",
+            JsonSerializer.Serialize(covered),
             "}");
 
         _payload = payload;

@@ -15,6 +15,7 @@ public class UpdateDubDataTask : IScheduledTask
     private readonly DubDataService _dubData;
     private readonly DubTagger _tagger;
     private readonly DubStatusIndex _index;
+    private readonly EpisodeTrackIndex _tracks;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UpdateDubDataTask"/> class.
@@ -22,11 +23,17 @@ public class UpdateDubDataTask : IScheduledTask
     /// <param name="dubData">Instance of the <see cref="DubDataService"/> class.</param>
     /// <param name="tagger">Instance of the <see cref="DubTagger"/> class.</param>
     /// <param name="index">Instance of the <see cref="DubStatusIndex"/> class.</param>
-    public UpdateDubDataTask(DubDataService dubData, DubTagger tagger, DubStatusIndex index)
+    /// <param name="tracks">Instance of the <see cref="EpisodeTrackIndex"/> class.</param>
+    public UpdateDubDataTask(
+        DubDataService dubData,
+        DubTagger tagger,
+        DubStatusIndex index,
+        EpisodeTrackIndex tracks)
     {
         _dubData = dubData;
         _tagger = tagger;
         _index = index;
+        _tracks = tracks;
     }
 
     /// <inheritdoc />
@@ -64,6 +71,14 @@ public class UpdateDubDataTask : IScheduledTask
         await _tagger.ApplyAsync(tagProgress, cancellationToken).ConfigureAwait(false);
 
         // Tags changed, so the web client's list of dubbed series is stale.
+        _index.Invalidate();
+
+        // Now that the tags have settled, measure how much of each tagged series the
+        // library holds. This reads every episode's media streams, so it belongs here
+        // rather than in a request.
+        _tracks.RefreshLibrary(_index.GetTaggedSeriesIds(), cancellationToken);
+
+        // Publish the measurements alongside the tag list.
         _index.Invalidate();
 
         progress.Report(100);

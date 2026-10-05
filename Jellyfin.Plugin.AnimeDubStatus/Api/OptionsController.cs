@@ -54,10 +54,16 @@ public class OptionsController : ControllerBase
                 name = language.DisplayName,
                 label = language.BadgeLabel
             }),
+            kinds = new[]
+            {
+                new { id = TrackSettings.Dub, name = "Dubbed audio" },
+                new { id = TrackSettings.Sub, name = "Subtitles" }
+            },
             current = new
             {
                 source = TrackSettings.GetSource(configuration).Id,
                 language = TrackSettings.GetLanguage(configuration).Code,
+                trackKind = TrackSettings.IsSubtitle(configuration) ? TrackSettings.Sub : TrackSettings.Dub,
                 confidenceTier = TrackSettings.GetConfidenceTier(configuration),
                 tagName = TrackSettings.GetTagName(configuration),
                 badgeLabel = TrackSettings.GetBadgeLabel(configuration),

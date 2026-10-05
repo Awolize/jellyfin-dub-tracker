@@ -12,12 +12,16 @@
 
     // Replaced by the label the server sends, which follows the tracked language.
     var DEFAULT_BADGE_TEXT = 'DUB';
-    // Short enough that an open tab catches up while a re-tag is still running; the
-    // request is ETag-revalidated, so an unchanged list costs a 304.
     var REFRESH_MS = 60 * 1000;
     var DEBOUNCE_MS = 250;
 
+    var GREEN = '#4caf50';
+    var YELLOW = '#f5b301';
+    var NEUTRAL = '#607d8b';
+
     var dubbedIds = new Set();
+    var coverage = new Map();
+    var measured = false;
     var badgeText = DEFAULT_BADGE_TEXT;
     var lastLoad = 0;
     var inFlight = null;
@@ -26,8 +30,8 @@
     var style = document.createElement('style');
     style.textContent =
         '.' + BADGE_CLASS + '{position:absolute;top:.4em;left:.4em;z-index:2;padding:.15em .5em;' +
-        'border-radius:.3em;background:#f5b301;color:#000;font-size:.75em;font-weight:700;' +
-        'letter-spacing:.03em;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,.5)}';
+        'border-radius:.3em;font-size:.75em;font-weight:700;letter-spacing:.03em;' +
+        'pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,.5)}';
     document.head.appendChild(style);
 
     function normalize(id) {
@@ -47,12 +51,23 @@
                 return response.ok ? response.json() : null;
             })
             .then(function (payload) {
-                // Accepts the current { label, ids } shape and a bare array from
-                // an older server, so a rolling upgrade cannot break the badge.
+                // A bare array is the older payload shape and carries no coverage.
                 var ids = Array.isArray(payload) ? payload : payload && payload.ids;
 
-                if (payload && !Array.isArray(payload) && typeof payload.label === 'string' && payload.label) {
-                    badgeText = payload.label;
+                coverage = new Map();
+
+                if (payload && !Array.isArray(payload)) {
+                    if (typeof payload.label === 'string' && payload.label) {
+                        badgeText = payload.label;
+                    }
+
+                    measured = payload.measured === true;
+
+                    if (payload.covered) {
+                        Object.keys(payload.covered).forEach(function (key) {
+                            coverage.set(normalize(key), payload.covered[key]);
+                        });
+                    }
                 }
 
                 if (Array.isArray(ids)) {
@@ -70,6 +85,54 @@
         return inFlight;
     }
 
+    // The fill is the share of released episodes the library holds; the colour separates
+    // "not looked yet" from "none of it" from "all of it".
+    function stateFor(id) {
+        if (!dubbedIds.has(id)) {
+            return null;
+        }
+
+        if (!measured) {
+            return {
+                key: 'unknown',
+                text: badgeText,
+                background: NEUTRAL,
+                color: '#fff',
+                title: badgeText + ': how much of it you have has not been measured yet'
+            };
+        }
+
+        var percent = coverage.has(id) ? coverage.get(id) : 0;
+
+        if (percent >= 100) {
+            return {
+                key: 'full',
+                text: badgeText,
+                background: GREEN,
+                color: '#000',
+                title: badgeText + ': every released episode is in your library'
+            };
+        }
+
+        if (percent <= 0) {
+            return {
+                key: 'none',
+                text: badgeText,
+                background: YELLOW,
+                color: '#000',
+                title: badgeText + ': the dub exists, but none of it is in your library'
+            };
+        }
+
+        return {
+            key: 'partial',
+            text: badgeText + ' ' + percent + '%',
+            background: 'linear-gradient(90deg,' + GREEN + ' 0 ' + percent + '%,' + YELLOW + ' ' + percent + '% 100%)',
+            color: '#000',
+            title: badgeText + ': ' + percent + '% of released episodes are in your library'
+        };
+    }
+
     function findOverlay(card) {
         for (var i = 0; i < OVERLAY_SELECTORS.length; i++) {
             var overlay = card.querySelector(OVERLAY_SELECTORS[i]);
@@ -82,21 +145,25 @@
 
     function apply() {
         document.querySelectorAll(CARD_SELECTOR).forEach(function (card) {
+            var state = stateFor(normalize(card.getAttribute(ID_ATTRIBUTE)));
             var existing = card.querySelector('.' + BADGE_CLASS);
-            var dubbed = dubbedIds.has(normalize(card.getAttribute(ID_ATTRIBUTE)));
 
-            if (existing && !dubbed) {
-                existing.remove();
-                return;
-            }
-            if (existing) {
-                if (existing.textContent !== badgeText) {
-                    existing.textContent = badgeText;
+            if (!state) {
+                if (existing) {
+                    existing.remove();
                 }
                 return;
             }
-            if (!dubbed) {
+
+            // Only rebuild when something actually changed, so the observer stays cheap.
+            if (existing
+                && existing.getAttribute('data-state') === state.key
+                && existing.textContent === state.text) {
                 return;
+            }
+
+            if (existing) {
+                existing.remove();
             }
 
             var host = findOverlay(card);
@@ -106,7 +173,12 @@
 
             var badge = document.createElement('div');
             badge.className = BADGE_CLASS;
-            badge.textContent = badgeText;
+            badge.setAttribute('data-state', state.key);
+            badge.style.background = state.background;
+            badge.style.color = state.color;
+            badge.textContent = state.text;
+            badge.title = state.title;
+            badge.setAttribute('aria-label', state.title);
             host.appendChild(badge);
         });
     }

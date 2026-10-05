@@ -24,6 +24,15 @@
                     </div>
 
                     <div class="selectContainer">
+                        <label class="selectLabel" for="TrackKind">What to look for</label>
+                        <select id="TrackKind" name="TrackKind" class="emby-select-withcolor emby-select"></select>
+                        <div class="fieldDescription">
+                            Dubbed audio looks for an audio track in the language; subtitles looks
+                            for a subtitle track. This drives the badge fill on cards.
+                        </div>
+                    </div>
+
+                    <div class="selectContainer">
                         <label class="selectLabel" for="ConfidenceTier">Confidence tier</label>
                         <select id="ConfidenceTier" name="ConfidenceTier" class="emby-select-withcolor emby-select"></select>
                         <div class="fieldDescription">
@@ -148,6 +157,12 @@
                         options.current.language,
                         function (language) { return language.label; });
 
+                    fillSelect(
+                        byId('TrackKind'),
+                        options.kinds,
+                        options.current.trackKind,
+                        function (kind) { return kind.name; });
+
                     fillTiers(options.current.confidenceTier);
                     describeState(options);
                 }
@@ -170,6 +185,9 @@
                             }
                             if (configuration.Language) {
                                 byId('Language').value = configuration.Language;
+                            }
+                            if (configuration.TrackKind) {
+                                byId('TrackKind').value = configuration.TrackKind;
                             }
                             fillTiers(configuration.ConfidenceTier);
                         });
@@ -216,6 +234,7 @@
                     ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (configuration) {
                         configuration.Source = byId('Source').value;
                         configuration.Language = byId('Language').value;
+                        configuration.TrackKind = byId('TrackKind').value;
                         configuration.ConfidenceTier = byId('ConfidenceTier').value;
 
                         return ApiClient.updatePluginConfiguration(PLUGIN_ID, configuration)

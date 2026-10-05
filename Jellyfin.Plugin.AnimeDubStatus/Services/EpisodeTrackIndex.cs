@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.AnimeDubStatus.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -27,11 +28,15 @@ namespace Jellyfin.Plugin.AnimeDubStatus.Services;
 public sealed class EpisodeTrackIndex
 {
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(10);
+    private static readonly IReadOnlyDictionary<Guid, int> EmptyCoverage = new Dictionary<Guid, int>();
 
     private readonly ILibraryManager _libraryManager;
     private readonly ILocalizationManager _localization;
     private readonly ILogger<EpisodeTrackIndex> _logger;
     private readonly ConcurrentDictionary<Guid, CachedCoverage> _cache = new();
+    private volatile IReadOnlyDictionary<Guid, int> _libraryCoverage = new Dictionary<Guid, int>();
+    private volatile bool _hasMeasured;
+    private string? _measuredKey;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EpisodeTrackIndex"/> class.
@@ -47,6 +52,43 @@ public sealed class EpisodeTrackIndex
         _libraryManager = libraryManager;
         _localization = localization;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Gets the coverage measured for the language and track kind in force, containing
+    /// only the series where the library holds some of the track. A series that is absent
+    /// holds none of it, and a measurement made for a different selection reads as empty
+    /// rather than as the wrong answer.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, int> LibraryCoverage =>
+        IsCurrentMeasurement ? _libraryCoverage : EmptyCoverage;
+
+    /// <summary>
+    /// Gets a value indicating whether a coverage pass has completed for the selection in
+    /// force, so a client can tell "none of it" apart from "not looked yet".
+    /// </summary>
+    public bool HasMeasured => _hasMeasured && IsCurrentMeasurement;
+
+    /// <summary>
+    /// Gets a value indicating whether the last measurement belongs to the language and
+    /// track kind in force.
+    /// </summary>
+    private bool IsCurrentMeasurement =>
+        string.Equals(_measuredKey, CurrentKey, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Gets the language and track kind a measurement would cover.
+    /// </summary>
+    private static string CurrentKey
+    {
+        get
+        {
+            var configuration = TrackSettings.Current;
+            return string.Concat(
+                TrackSettings.GetLanguage(configuration).Code,
+                "|",
+                TrackSettings.GetStreamType(configuration));
+        }
     }
 
     /// <summary>
@@ -114,11 +156,49 @@ public sealed class EpisodeTrackIndex
     }
 
     /// <summary>
+    /// Measures the given series and publishes the result for cheap reads.
+    /// </summary>
+    /// <remarks>
+    /// Called from the scheduled task rather than from a request, because reading every
+    /// episode's media streams is far too slow to do while answering a page load.
+    /// </remarks>
+    /// <param name="seriesIds">The series to measure.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    public void RefreshLibrary(IReadOnlyCollection<Guid> seriesIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(seriesIds);
+
+        var measured = new Dictionary<Guid, int>(seriesIds.Count);
+
+        foreach (var seriesId in seriesIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var coverage = GetCoverage(seriesId);
+            if (coverage.Percent > 0)
+            {
+                measured[seriesId] = coverage.Percent;
+            }
+        }
+
+        _libraryCoverage = measured;
+        _hasMeasured = true;
+        _measuredKey = CurrentKey;
+
+        _logger.LogInformation(
+            "Measured coverage for {Total} series: {Owned} hold some of the track",
+            seriesIds.Count,
+            measured.Count);
+    }
+
+    /// <summary>
     /// Discards every cached coverage, after media changed or settings moved.
     /// </summary>
     public void Invalidate()
     {
         _cache.Clear();
+        _libraryCoverage = new Dictionary<Guid, int>();
+        _hasMeasured = false;
     }
 
     private EpisodeCoverage Build(Guid seriesId, TrackLanguage language, MediaStreamType streamType)
