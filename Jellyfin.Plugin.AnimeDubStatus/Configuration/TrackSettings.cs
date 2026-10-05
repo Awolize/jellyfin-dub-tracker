@@ -1,3 +1,6 @@
+using System;
+using MediaBrowser.Model.Entities;
+
 namespace Jellyfin.Plugin.AnimeDubStatus.Configuration;
 
 /// <summary>
@@ -10,6 +13,16 @@ namespace Jellyfin.Plugin.AnimeDubStatus.Configuration;
 public static class TrackSettings
 {
     /// <summary>
+    /// The track kind value for dubbed audio.
+    /// </summary>
+    public const string Dub = "dub";
+
+    /// <summary>
+    /// The track kind value for subtitles.
+    /// </summary>
+    public const string Sub = "sub";
+
+    /// <summary>
     /// Used before the plugin instance exists, so callers never have to null-check.
     /// Treat it as read-only.
     /// </summary>
@@ -19,6 +32,24 @@ public static class TrackSettings
     /// Gets the live plugin configuration, or defaults before the plugin is constructed.
     /// </summary>
     public static PluginConfiguration Current => Plugin.Instance?.Configuration ?? Fallback;
+
+    /// <summary>
+    /// Gets the media stream type the configured track kind refers to.
+    /// </summary>
+    /// <param name="configuration">The plugin configuration.</param>
+    /// <returns>Audio for a dub, Subtitle for subtitles.</returns>
+    public static MediaStreamType GetStreamType(PluginConfiguration configuration) =>
+        string.Equals(configuration.TrackKind, Sub, StringComparison.OrdinalIgnoreCase)
+            ? MediaStreamType.Subtitle
+            : MediaStreamType.Audio;
+
+    /// <summary>
+    /// Gets whether the configured track kind is subtitles rather than a dub.
+    /// </summary>
+    /// <param name="configuration">The plugin configuration.</param>
+    /// <returns>True when subtitles are tracked.</returns>
+    public static bool IsSubtitle(PluginConfiguration configuration) =>
+        string.Equals(configuration.TrackKind, Sub, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Resolves the configured source.

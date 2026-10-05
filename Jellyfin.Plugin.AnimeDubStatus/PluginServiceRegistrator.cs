@@ -18,6 +18,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<DubDataService>();
         serviceCollection.AddSingleton<DubStatusIndex>();
+        serviceCollection.AddSingleton<EpisodeTrackIndex>();
         serviceCollection.AddSingleton<DubTagger>();
         serviceCollection.AddTransient<IStartupFilter, WebUiInjectionStartupFilter>();
     }

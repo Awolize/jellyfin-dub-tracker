@@ -17,6 +17,7 @@ public class PluginConfiguration : BasePluginConfiguration
         MappingETag = string.Empty;
         Source = TrackSourceCatalog.MyDubList;
         Language = TrackLanguageCatalog.Default;
+        TrackKind = TrackSettings.Dub;
         ConfidenceTier = string.Empty;
         DatasetKey = string.Empty;
     }
@@ -30,6 +31,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the code of the language to track.
     /// </summary>
     public string Language { get; set; }
+
+    /// <summary>
+    /// Gets or sets the kind of track to look for in media files: <c>dub</c> for an audio
+    /// track, <c>sub</c> for a subtitle track.
+    /// </summary>
+    public string TrackKind { get; set; }
 
     /// <summary>
     /// Gets or sets the source's confidence tier, where empty means the source default.
