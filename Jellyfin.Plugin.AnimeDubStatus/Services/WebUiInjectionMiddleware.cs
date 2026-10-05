@@ -145,7 +145,7 @@ public sealed class WebUiInjectionMiddleware
 
     private static async Task WriteDataAsync(HttpContext context, DubStatusIndex index)
     {
-        var (payload, etag) = index.GetSnapshot();
+        var (payload, etag, _) = index.GetSnapshot();
         context.Response.Headers.ETag = etag;
         context.Response.Headers.CacheControl = "no-cache";
 

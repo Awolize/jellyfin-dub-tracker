@@ -8,7 +8,7 @@ using MediaBrowser.Model.Tasks;
 namespace Jellyfin.Plugin.AnimeDubStatus.Tasks;
 
 /// <summary>
-/// Scheduled task that refreshes the English dub dataset.
+/// Scheduled task that refreshes the dub dataset and re-tags the library.
 /// </summary>
 public class UpdateDubDataTask : IScheduledTask
 {
@@ -30,13 +30,17 @@ public class UpdateDubDataTask : IScheduledTask
     }
 
     /// <inheritdoc />
-    public string Name => "Update English dub data";
+    /// <remarks>
+    /// Deliberately language-neutral: the scheduler captures task text when the plugin
+    /// loads, so naming the configured language here would go stale until a restart.
+    /// </remarks>
+    public string Name => "Update dub data";
 
     /// <inheritdoc />
     public string Key => "AnimeDubStatusUpdateData";
 
     /// <inheritdoc />
-    public string Description => "Downloads the latest English dub list from MyDubList.";
+    public string Description => "Downloads the latest dub list for the tracked language and re-tags the library.";
 
     /// <inheritdoc />
     public string Category => "Anime Dub Status";

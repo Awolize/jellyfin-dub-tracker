@@ -123,7 +123,7 @@ client by hand.
 
 ## Data sources and attribution
 
-English dub data comes from **[MyDubList](https://mydublist.com)** by
+Dub data comes from **[MyDubList](https://mydublist.com)** by
 [Joelis57](https://github.com/Joelis57/MyDubList), licensed
 **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**. The dataset carries its own
 attribution metadata (`_attribution`, `_license`, `_origin`); that attribution is

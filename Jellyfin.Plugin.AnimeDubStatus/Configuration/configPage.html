@@ -110,16 +110,23 @@
                 function describeState(options) {
                     byId('Attribution').textContent = options.current.attribution;
 
-                    var state = options.current.dubbedTitleCount + ' titles currently loaded';
+                    var state = options.current.dubbedTitleCount + ' titles in the dataset';
                     if (options.current.lastUpdatedUtc) {
-                        state += ', data last changed ' +
+                        state += ', last changed ' +
                             new Date(options.current.lastUpdatedUtc).toLocaleString();
                     }
                     byId('DatasetState').textContent = state;
 
-                    byId('AppliedTag').textContent = options.current.appliedTagName
-                        ? 'Currently tagged in the library: "' + options.current.appliedTagName + '"'
-                        : 'The library has not been tagged yet.';
+                    var library = options.current.taggedSeriesCount +
+                        ' series in your library carry "' + options.current.tagName + '"';
+
+                    if (options.current.appliedTagName !== options.current.tagName) {
+                        library += '. Tagging for the selected language has not finished yet.';
+                    } else if (options.current.taggedSeriesCount === 0) {
+                        library += '. The dataset may simply have no matches in your library.';
+                    }
+
+                    byId('AppliedTag').textContent = library;
                 }
 
                 function applyOptions(options) {

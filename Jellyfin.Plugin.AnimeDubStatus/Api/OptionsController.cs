@@ -16,14 +16,17 @@ namespace Jellyfin.Plugin.AnimeDubStatus.Api;
 public class OptionsController : ControllerBase
 {
     private readonly DubDataService _dubData;
+    private readonly DubStatusIndex _statusIndex;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OptionsController"/> class.
     /// </summary>
     /// <param name="dubData">Instance of the <see cref="DubDataService"/> class.</param>
-    public OptionsController(DubDataService dubData)
+    /// <param name="statusIndex">Instance of the <see cref="DubStatusIndex"/> class.</param>
+    public OptionsController(DubDataService dubData, DubStatusIndex statusIndex)
     {
         _dubData = dubData;
+        _statusIndex = statusIndex;
     }
 
     /// <summary>
@@ -61,7 +64,11 @@ public class OptionsController : ControllerBase
                 attribution = TrackSettings.GetAttribution(configuration),
                 appliedTagName = configuration.AppliedTagName,
                 lastUpdatedUtc = configuration.LastUpdatedUtc,
-                dubbedTitleCount = _dubData.DubbedTitleCount
+                dubbedTitleCount = _dubData.DubbedTitleCount,
+
+                // Separates "the dataset has this language" from "this library has
+                // matches", which is otherwise invisible when a language yields no badges.
+                taggedSeriesCount = _statusIndex.GetSnapshot().Count
             }
         });
     }

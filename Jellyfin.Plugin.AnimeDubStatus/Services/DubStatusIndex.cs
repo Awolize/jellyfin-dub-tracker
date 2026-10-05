@@ -31,6 +31,7 @@ public sealed class DubStatusIndex
     private string _etag = "\"0\"";
     private DateTime _builtUtc = DateTime.MinValue;
     private string? _snapshotKey;
+    private int _count;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DubStatusIndex"/> class.
@@ -56,10 +57,11 @@ public sealed class DubStatusIndex
     }
 
     /// <summary>
-    /// Gets the current snapshot of dubbed series identifiers and the badge label.
+    /// Gets the current snapshot: the badge label, the dubbed series identifiers, and how
+    /// many the library has.
     /// </summary>
-    /// <returns>The JSON payload and an entity tag for it.</returns>
-    public (string Payload, string ETag) GetSnapshot()
+    /// <returns>The JSON payload, an entity tag, and the tagged series count.</returns>
+    public (string Payload, string ETag, int Count) GetSnapshot()
     {
         var configuration = TrackSettings.Current;
         var tagName = TrackSettings.GetTagName(configuration);
@@ -78,7 +80,7 @@ public sealed class DubStatusIndex
                 Rebuild(tagName, label, key);
             }
 
-            return (_payload, _etag);
+            return (_payload, _etag, _count);
         }
     }
 
@@ -116,6 +118,7 @@ public sealed class DubStatusIndex
         _etag = ComputeETag(Encoding.UTF8.GetBytes(payload));
         _builtUtc = DateTime.UtcNow;
         _snapshotKey = key;
+        _count = ids.Length;
 
         _logger.LogInformation(
             "Dub status index rebuilt for {Tag}: {Count} series",
