@@ -267,7 +267,9 @@
         return measuredState(coverage.has(id) ? coverage.get(id) : 0, badgeText);
     }
 
-    // An item element, as opposed to a page container that happens to carry data-id.
+    // An item element, as opposed to a page container or an action control that happens
+    // to carry data-id. Jellyfin marks up its buttons and links the same way, which is
+    // how a badge ended up sitting on Mark as played.
     function looksLikeCard(element) {
         var className = String(element.className || '');
 
@@ -275,11 +277,7 @@
             return true;
         }
 
-        if (element.querySelector(OVERLAY_QUERY)) {
-            return true;
-        }
-
-        return /^(A|BUTTON)$/.test(element.tagName);
+        return element.querySelector(OVERLAY_QUERY) !== null;
     }
 
     function findOverlay(card) {
@@ -443,6 +441,22 @@
                 elementsWithDataId: items.length,
                 badgesDrawn: document.querySelectorAll('.' + BADGE_CLASS).length,
                 detailBadgeTarget: detailBadgeTarget,
+
+                // What the elements carrying data-id actually are, most common first.
+                classHistogram: (function () {
+                    var counts = {};
+
+                    Array.prototype.forEach.call(items, function (element) {
+                        var key = element.tagName + '.'
+                            + String(element.className || '').split(' ').filter(Boolean).slice(0, 2).join('.');
+                        counts[key] = (counts[key] || 0) + 1;
+                    });
+
+                    return Object.keys(counts)
+                        .map(function (key) { return key + ' x' + counts[key]; })
+                        .sort()
+                        .slice(0, 20);
+                })(),
                 samples: Array.prototype.slice.call(items, 0, 12).map(function (element) {
                     return element.tagName
                         + '.' + String(element.className || '').split(' ').filter(Boolean).slice(0, 2).join('.')
