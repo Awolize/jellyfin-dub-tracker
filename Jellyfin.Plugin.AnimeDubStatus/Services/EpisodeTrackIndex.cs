@@ -97,6 +97,7 @@ public sealed class EpisodeTrackIndex
             released = coverage.Released,
             present = coverage.Present,
             percent = coverage.Percent,
+            strategy = coverage.Strategy,
             episodes = coverage.Episodes.Select(episode => new
             {
                 id = episode.Id.ToString("N", CultureInfo.InvariantCulture),
@@ -122,12 +123,9 @@ public sealed class EpisodeTrackIndex
 
     private EpisodeCoverage Build(Guid seriesId, TrackLanguage language, MediaStreamType streamType)
     {
-        var episodes = _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            IncludeItemTypes = [BaseItemKind.Episode],
-            Recursive = true,
-            AncestorIds = [seriesId]
-        });
+        var item = _libraryManager.GetItemById(seriesId);
+        var itemType = item?.GetType().Name ?? "unknown";
+        var episodes = FindEpisodes(seriesId, itemType, out var strategy);
 
         var cultures = _localization.GetCultures().ToList();
         var states = new List<EpisodeTrack>(episodes.Count);
@@ -141,15 +139,79 @@ public sealed class EpisodeTrackIndex
         var result = TrackCoverage.Compute(states.Select(state => new EpisodeTrackFact(state.HasTrack, state.IsUnaired)));
 
         _logger.LogInformation(
-            "Episode coverage for series {SeriesId} in {Language} ({Kind}): {Present}/{Released} ({Percent}%)",
+            "Episode coverage for {ItemType} {SeriesId} ({Strategy}) in {Language} ({Kind}): {Present}/{Released} ({Percent}%)",
+            itemType,
             seriesId,
+            strategy,
             language.DisplayName,
             streamType,
             result.Present,
             result.Released,
             result.Percent);
 
-        return new EpisodeCoverage(result.Released, result.Present, result.Percent, states);
+        return new EpisodeCoverage(result.Released, result.Present, result.Percent, states, strategy);
+    }
+
+    /// <summary>
+    /// Finds the episodes belonging to an item.
+    /// </summary>
+    /// <remarks>
+    /// Filtering by ancestor did not return episodes in practice, so this walks the item
+    /// tree by parent instead: episodes below a season, then episodes parented straight to
+    /// the item, which covers libraries with and without season folders.
+    /// </remarks>
+    /// <param name="id">The series, season or folder identifier.</param>
+    /// <param name="itemType">The resolved item type, for the strategy label.</param>
+    /// <param name="strategy">How the episodes were found.</param>
+    /// <returns>The episodes, possibly empty.</returns>
+    private IReadOnlyList<BaseItem> FindEpisodes(Guid id, string itemType, out string strategy)
+    {
+        var byAncestor = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            Recursive = true,
+            AncestorIds = [id]
+        });
+
+        if (byAncestor.Count > 0)
+        {
+            strategy = string.Concat(itemType, "/ancestors");
+            return byAncestor;
+        }
+
+        var seasons = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Season],
+            ParentId = id
+        });
+
+        if (seasons.Count > 0)
+        {
+            var fromSeasons = new List<BaseItem>();
+            foreach (var season in seasons)
+            {
+                fromSeasons.AddRange(_libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IncludeItemTypes = [BaseItemKind.Episode],
+                    ParentId = season.Id
+                }));
+            }
+
+            if (fromSeasons.Count > 0)
+            {
+                strategy = string.Concat(itemType, "/seasons");
+                return fromSeasons;
+            }
+        }
+
+        var flat = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            ParentId = id
+        });
+
+        strategy = string.Concat(itemType, flat.Count > 0 ? "/flat" : "/none");
+        return flat;
     }
 
     private (bool HasTrack, string? Language) Inspect(

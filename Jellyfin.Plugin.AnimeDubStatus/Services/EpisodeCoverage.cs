@@ -9,8 +9,10 @@ namespace Jellyfin.Plugin.AnimeDubStatus.Services;
 /// <param name="Present">How many of those carry the track.</param>
 /// <param name="Percent">Present as a percentage of released.</param>
 /// <param name="Episodes">The per-episode states.</param>
+/// <param name="Strategy">How the episodes were found, for diagnosis, such as <c>Series/ancestors</c>.</param>
 public sealed record EpisodeCoverage(
     int Released,
     int Present,
     int Percent,
-    IReadOnlyList<EpisodeTrack> Episodes);
+    IReadOnlyList<EpisodeTrack> Episodes,
+    string Strategy);
