@@ -34,6 +34,7 @@
     var seasonPercent = new Map();
     var missingEpisodes = new Set();
     var lastDetailId = null;
+    var lastFetchedId = null;
 
     // A detail page for a playable item need not carry that item's id anywhere, so the
     // badge for the page itself goes beside its title instead.
@@ -125,25 +126,61 @@
         return id ? normalize(id) : null;
     }
 
+    // What kind of item the page is showing, read off the controls that carry its id.
+    function openItemType(openId) {
+        var elements = document.querySelectorAll('[data-id][data-type]');
+
+        for (var i = 0; i < elements.length; i++) {
+            if (normalize(elements[i].getAttribute(ID_ATTRIBUTE)) === openId) {
+                return elements[i].getAttribute('data-type');
+            }
+        }
+
+        return null;
+    }
+
+    // An episode or season page only describes that one item, so the cards for its
+    // siblings would never be judged. The parent series describes all of them, so ask
+    // for that instead. A series page asks for itself, to avoid picking up an unrelated
+    // series from a More Like This row.
+    function resolveAggregateId(openId) {
+        if (openItemType(openId) === 'Series') {
+            return openId;
+        }
+
+        var parent = document.querySelector('.parentName [data-type="Series"][data-id]');
+        if (parent) {
+            var parentId = normalize(parent.getAttribute(ID_ATTRIBUTE));
+            if (parentId) {
+                return parentId;
+            }
+        }
+
+        return openId;
+    }
+
     // One request per page drives both the season fills and the episode marks: for a
     // series it lists every episode with its season, for a season just its own.
     function loadDetail() {
-        var id = currentDetailId();
+        var openId = currentDetailId();
+        lastDetailId = openId;
 
-        if (!id) {
+        if (!openId) {
             seasonPercent = new Map();
             missingEpisodes = new Set();
-            lastDetailId = null;
+            lastFetchedId = null;
             return Promise.resolve();
         }
 
-        if (id === lastDetailId) {
+        var target = resolveAggregateId(openId);
+
+        if (target === lastFetchedId) {
             return detailInFlight || Promise.resolve();
         }
 
-        lastDetailId = id;
+        lastFetchedId = target;
 
-        detailInFlight = fetch(TRACKS_URL + '?series=' + id, { cache: 'no-cache', credentials: 'same-origin' })
+        detailInFlight = fetch(TRACKS_URL + '?series=' + target, { cache: 'no-cache', credentials: 'same-origin' })
             .then(function (response) {
                 return response.ok ? response.json() : null;
             })
@@ -472,6 +509,7 @@
                 label: badgeText,
                 measured: measured,
                 openItem: lastDetailId,
+                fetchTarget: lastFetchedId,
                 taggedSeries: dubbedIds.size,
                 seasonsKnown: seasonPercent.size,
                 episodesMissing: missingEpisodes.size,
