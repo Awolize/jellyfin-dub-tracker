@@ -12,6 +12,10 @@
     var BADGE_CLASS = 'anime-dub-badge';
     var OVERLAY_SELECTORS = ['.cardScalable', '.cardImageContainer', '.cardBox'];
 
+    // Jellyfin also puts data-id on page level containers, which are not items and have
+    // no sensible corner to hang a badge on.
+    var OVERLAY_QUERY = '.cardScalable, .cardImageContainer, .cardBox, .cardImage';
+
     // Replaced by the label the server sends, which follows the tracked language and kind.
     var DEFAULT_BADGE_TEXT = 'DUB';
     var REFRESH_MS = 60 * 1000;
@@ -263,6 +267,21 @@
         return measuredState(coverage.has(id) ? coverage.get(id) : 0, badgeText);
     }
 
+    // An item element, as opposed to a page container that happens to carry data-id.
+    function looksLikeCard(element) {
+        var className = String(element.className || '');
+
+        if (/(^|\s)(card|listItem)(\s|$)/.test(className)) {
+            return true;
+        }
+
+        if (element.querySelector(OVERLAY_QUERY)) {
+            return true;
+        }
+
+        return /^(A|BUTTON)$/.test(element.tagName);
+    }
+
     function findOverlay(card) {
         for (var i = 0; i < OVERLAY_SELECTORS.length; i++) {
             var overlay = card.querySelector(OVERLAY_SELECTORS[i]);
@@ -306,7 +325,15 @@
             badge.textContent = state.text;
             badge.title = state.title;
             badge.setAttribute('aria-label', state.title);
-            host.appendChild(badge);
+
+            // After a title reads naturally; inside a whole block it would land at the
+            // bottom of that block, next to the action buttons.
+            var hostClass = String(host.className || '');
+            if (/itemName|nameContainer/.test(hostClass) || /^(H1|H2|H3)$/.test(host.tagName)) {
+                host.appendChild(badge);
+            } else {
+                host.insertBefore(badge, host.firstChild);
+            }
 
             detailBadge = badge;
             detailBadgeTarget = DETAIL_TARGETS[i];
@@ -322,6 +349,11 @@
 
             // Nested wrappers can repeat an id; decorate only the first, outermost one.
             if (decorated.has(id)) {
+                return;
+            }
+
+            // Page level containers carry data-id too, and have no corner worth using.
+            if (!looksLikeCard(card)) {
                 return;
             }
 
@@ -366,8 +398,10 @@
 
         // The page's own item, when nothing on it carries that item's id.
         var openId = lastDetailId;
-        if (openId && missingEpisodes.has(openId) && !decorated.has(openId)) {
-            injectDetailBadge(stateFor(openId));
+        var openState = openId && !decorated.has(openId) ? stateFor(openId) : null;
+
+        if (openState) {
+            injectDetailBadge(openState);
         } else {
             removeDetailBadge();
         }
