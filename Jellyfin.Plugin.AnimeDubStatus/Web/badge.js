@@ -10,11 +10,11 @@
     var CARD_SELECTOR = '[data-id]';
     var ID_ATTRIBUTE = 'data-id';
     var BADGE_CLASS = 'anime-dub-badge';
-    var OVERLAY_SELECTORS = ['.cardScalable', '.cardImageContainer', '.cardBox'];
+    var OVERLAY_SELECTORS = ['.cardScalable', '.cardImageContainer', '.cardBox', '.listItemImage'];
 
     // Jellyfin also puts data-id on page level containers, which are not items and have
     // no sensible corner to hang a badge on.
-    var OVERLAY_QUERY = '.cardScalable, .cardImageContainer, .cardBox, .cardImage';
+    var OVERLAY_QUERY = '.cardScalable, .cardImageContainer, .cardBox, .cardImage, .listItemImage';
 
     // Replaced by the label the server sends, which follows the tracked language and kind.
     var DEFAULT_BADGE_TEXT = 'DUB';
@@ -426,6 +426,17 @@
 
             // Page level containers carry data-id too, and have no corner worth using.
             if (!looksLikeCard(card)) {
+                return;
+            }
+
+            // Jellyfin keeps previously visited pages in the DOM, hidden. Their elements
+            // come first in document order, so without this check they claim an id and the
+            // page actually on screen never gets a badge.
+            if (card.getClientRects().length === 0) {
+                var stale = card.querySelector('.' + BADGE_CLASS);
+                if (stale) {
+                    stale.remove();
+                }
                 return;
             }
 
