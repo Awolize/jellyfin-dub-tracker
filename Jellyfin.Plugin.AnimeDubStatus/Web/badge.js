@@ -290,6 +290,47 @@
         return card;
     }
 
+    function createChip(state) {
+        var badge = document.createElement('div');
+        badge.className = BADGE_CLASS;
+        badge.setAttribute('data-state', state.key);
+
+        // Flowing with whatever it sits beside, rather than floating over it.
+        badge.style.position = 'static';
+        badge.style.display = 'inline-block';
+        badge.style.margin = '0 .5em';
+        badge.style.verticalAlign = 'middle';
+
+        badge.style.background = state.background;
+        badge.style.color = state.color;
+        badge.textContent = state.text;
+        badge.title = state.title;
+        badge.setAttribute('aria-label', state.title);
+
+        return badge;
+    }
+
+    // A detail page's own id usually lives on a visible control, such as the play state
+    // button. A text container with that id can exist without being rendered at all,
+    // which is how a badge ends up in the DOM but invisible.
+    function findControlAnchor(openId) {
+        var elements = document.querySelectorAll('[data-id]');
+
+        for (var i = 0; i < elements.length; i++) {
+            var element = elements[i];
+            if (normalize(element.getAttribute(ID_ATTRIBUTE)) !== openId) {
+                continue;
+            }
+
+            var className = String(element.className || '');
+            if (/detailButton|btnPlaystate|itemAction/.test(className) && element.parentElement) {
+                return element;
+            }
+        }
+
+        return null;
+    }
+
     function removeDetailBadge() {
         if (detailBadge) {
             detailBadge.remove();
@@ -298,8 +339,19 @@
         }
     }
 
-    function injectDetailBadge(state) {
+    function injectDetailBadge(state, openId) {
         removeDetailBadge();
+
+        // Beside a control that is definitely rendered, if there is one.
+        var anchor = openId ? findControlAnchor(openId) : null;
+        if (anchor && anchor.parentElement) {
+            var controlChip = createChip(state);
+            anchor.parentElement.insertBefore(controlChip, anchor);
+            detailBadge = controlChip;
+            detailBadgeTarget = 'control:' + anchor.tagName + '.'
+                + String(anchor.className || '').split(' ').filter(Boolean).slice(0, 2).join('.');
+            return;
+        }
 
         for (var i = 0; i < DETAIL_TARGETS.length; i++) {
             var host = document.querySelector(DETAIL_TARGETS[i]);
@@ -307,22 +359,7 @@
                 continue;
             }
 
-            var badge = document.createElement('div');
-            badge.className = BADGE_CLASS;
-            badge.setAttribute('data-state', state.key);
-
-            // Flowing with the title rather than floating over it, which is what an
-            // absolutely positioned badge does in a text container.
-            badge.style.position = 'static';
-            badge.style.display = 'inline-block';
-            badge.style.margin = '0 .5em';
-            badge.style.verticalAlign = 'middle';
-
-            badge.style.background = state.background;
-            badge.style.color = state.color;
-            badge.textContent = state.text;
-            badge.title = state.title;
-            badge.setAttribute('aria-label', state.title);
+            var badge = createChip(state);
 
             // After a title reads naturally; inside a whole block it would land at the
             // bottom of that block, next to the action buttons.
@@ -399,7 +436,7 @@
         var openState = openId && !decorated.has(openId) ? stateFor(openId) : null;
 
         if (openState) {
-            injectDetailBadge(openState);
+            injectDetailBadge(openState, openId);
         } else {
             removeDetailBadge();
         }
@@ -441,6 +478,29 @@
                 elementsWithDataId: items.length,
                 badgesDrawn: document.querySelectorAll('.' + BADGE_CLASS).length,
                 detailBadgeTarget: detailBadgeTarget,
+
+                // Where each missing episode's id actually appears, or that it does not.
+                missingEpisodeTargets: (function () {
+                    var elements = document.querySelectorAll('[data-id]');
+                    var out = [];
+
+                    missingEpisodes.forEach(function (id) {
+                        var found = null;
+
+                        for (var i = 0; i < elements.length; i++) {
+                            if (normalize(elements[i].getAttribute(ID_ATTRIBUTE)) === id) {
+                                found = elements[i];
+                                break;
+                            }
+                        }
+
+                        out.push(id.slice(-8) + ' -> ' + (found
+                            ? found.tagName + '.' + String(found.className || '').split(' ').filter(Boolean).slice(0, 2).join('.')
+                            : 'NOT IN DOM'));
+                    });
+
+                    return out;
+                })(),
 
                 // What the elements carrying data-id actually are, most common first.
                 classHistogram: (function () {
