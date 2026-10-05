@@ -171,14 +171,25 @@ public sealed class EpisodeTrackIndex
 
         var measured = new Dictionary<Guid, int>(seriesIds.Count);
 
+        _logger.LogInformation("Measuring coverage for {Total} series", seriesIds.Count);
+
         foreach (var seriesId in seriesIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var coverage = GetCoverage(seriesId);
-            if (coverage.Percent > 0)
+            // One unreadable series must not leave the whole library unmeasured, which
+            // would show as every badge staying grey indefinitely.
+            try
             {
-                measured[seriesId] = coverage.Percent;
+                var coverage = GetCoverage(seriesId);
+                if (coverage.Percent > 0)
+                {
+                    measured[seriesId] = coverage.Percent;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not measure coverage for series {SeriesId}", seriesId);
             }
         }
 
