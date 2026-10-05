@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.7.0.0",
+        "changelog": "Release 1.7.0.0",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/Awolize/jellyfin-dub-tracker/releases/download/v1.7.0.0/AnimeDubStatus_1.7.0.0.zip",
+        "checksum": "882f0765059416311acac2bf4cbe33e6",
+        "timestamp": "2026-10-05T09:42:26Z"
+      },
+      {
         "version": "1.6.1.0",
         "changelog": "Release 1.6.1.0",
         "targetAbi": "12.1.0.0",
